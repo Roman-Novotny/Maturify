@@ -1,7 +1,7 @@
 import "server-only";
 import { cache } from "react";
 import { redirect } from "next/navigation";
-import { isAiConfigured } from "@/lib/ai/client";
+import { getProvider, isAiConfigured } from "@/lib/ai/client";
 import { getTodaySpend } from "@/lib/ai/usage";
 import { createClient } from "@/lib/supabase/server";
 import type { SubjectId } from "@/lib/database.types";
@@ -199,8 +199,11 @@ export const getAiStatus = cache(async () => {
   const configured = isAiConfigured();
   const spent = configured ? await getTodaySpend(supabase) : 0;
   const limit = Number(profile?.ai_daily_limit_usd ?? 1);
+  const provider = configured ? getProvider() : null;
   return {
     configured,
+    provider: provider?.name ?? null,
+    model: provider?.model ?? null,
     enabled: profile?.ai_enabled ?? true,
     /** Jde AI teď použít? (klíč + zapnuto + nevyčerpaný limit) */
     available: configured && (profile?.ai_enabled ?? true) && spent < limit,

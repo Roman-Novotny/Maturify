@@ -2,7 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/database.types";
 import { todayISO } from "@/lib/utils";
-import { AiBudgetError, AiDisabledError, estimateCost, getAnthropic, type UsageLike } from "./client";
+import { AiBudgetError, AiDisabledError, estimateCost, getProvider, type UsageLike } from "./client";
 
 type Db = SupabaseClient<Database>;
 
@@ -24,10 +24,10 @@ export async function getTodaySpend(supabase: Db) {
 
 /**
  * Ověří, že AI jde použít: je nakonfigurovaná, uživatel ji nemá vypnutou a nepřekročil denní limit.
- * Vrací klienta, ať se na kontrolu nedá zapomenout.
+ * Vrací poskytovatele, ať se na kontrolu nedá zapomenout.
  */
 export async function requireAi(supabase: Db, userId: string) {
-  const anthropic = getAnthropic();
+  const ai = getProvider();
   const { data: profile } = await supabase
     .from("profiles")
     .select("ai_enabled, ai_daily_limit_usd")
@@ -36,7 +36,7 @@ export async function requireAi(supabase: Db, userId: string) {
   if (profile && !profile.ai_enabled) throw new AiDisabledError();
   const limit = Number(profile?.ai_daily_limit_usd ?? 1);
   if ((await getTodaySpend(supabase)) >= limit) throw new AiBudgetError(limit);
-  return anthropic;
+  return ai;
 }
 
 export async function recordUsage(supabase: Db, feature: string, model: string, usage: UsageLike) {

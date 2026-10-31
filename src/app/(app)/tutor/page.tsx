@@ -108,7 +108,7 @@ function AiUnavailable({ status }: { status: { configured: boolean; enabled: boo
       {!status.configured ? (
         <p className="text-sm">
           AI zatím není nastavená. Do souboru <code className="rounded bg-panel-2 px-1">.env.local</code> přidej{" "}
-          <code className="rounded bg-panel-2 px-1">ANTHROPIC_API_KEY=…</code> (klíč z console.anthropic.com) a restartuj server. Zbytek
+          <code className="rounded bg-panel-2 px-1">GEMINI_API_KEY=…</code> (zdarma z aistudio.google.com) a restartuj server. Zbytek
           aplikace funguje i bez AI.
         </p>
       ) : !status.enabled ? (

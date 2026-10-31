@@ -1,8 +1,8 @@
-import type Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
-import { AI_MODEL, AiRefusalError, aiErrorMessage, FALLBACK_BETA } from "@/lib/ai/client";
+import { aiErrorMessage } from "@/lib/ai/client";
 import { buildStudyContext, formatContext } from "@/lib/ai/context";
 import { tutorSystemPrompt } from "@/lib/ai/prompts";
+import type { AiProvider, ChatMessage } from "@/lib/ai/provider";
 import { recordUsage, requireAi } from "@/lib/ai/usage";
 import { createClient } from "@/lib/supabase/server";
 
@@ -33,9 +33,9 @@ export async function POST(request: Request) {
   if (!parsed.success) return Response.json({ error: "Neplatný požadavek." }, { status: 400 });
   const body = parsed.data;
 
-  let anthropic: Anthropic;
+  let ai: AiProvider;
   try {
-    anthropic = await requireAi(supabase, userId);
+    ai = await requireAi(supabase, userId);
   } catch (e) {
     return Response.json({ error: aiErrorMessage(e) }, { status: 403 });
   }
@@ -87,7 +87,7 @@ export async function POST(request: Request) {
 
   // Historie bez kontextu (ten se mění podle dotazu); kontext jde jen k poslední zprávě.
   // Proto ani cache_control: prefix se mezi tahy mění a zápis do cache by jen stál víc.
-  const messages: Anthropic.Beta.BetaMessageParam[] = (history ?? [])
+  const messages: ChatMessage[] = (history ?? [])
     .reverse()
     .map((m) => ({ role: m.role, content: m.content }));
   // API vyžaduje, aby první zpráva byla od uživatele (po oříznutí historie nemusí).
@@ -106,25 +106,18 @@ export async function POST(request: Request) {
       send(controller, { type: "meta", conversationId: conversation.id, sources: ctx.sources });
       let full = "";
       try {
-        const aiStream = anthropic.beta.messages.stream(
-          {
-            model: AI_MODEL,
-            max_tokens: 16000,
-            betas: [FALLBACK_BETA],
-            fallbacks: "default",
-            output_config: { effort: "medium" },
-            system: tutorSystemPrompt(conversation.mode),
-            messages,
+        const final = await ai.stream({
+          system: tutorSystemPrompt(conversation.mode),
+          messages,
+          // Chat: rychlá první odpověď je důležitější než hluboké přemýšlení.
+          effort: "low",
+          signal: request.signal,
+          onText: (delta) => {
+            full += delta;
+            send(controller, { type: "text", text: delta });
           },
-          { signal: request.signal },
-        );
-        aiStream.on("text", (delta) => {
-          full += delta;
-          send(controller, { type: "text", text: delta });
         });
-        const final = await aiStream.finalMessage();
         await recordUsage(supabase, `tutor_${conversation.mode}`, final.model, final.usage);
-        if (final.stop_reason === "refusal") throw new AiRefusalError();
 
         if (full.trim()) {
           await supabase.from("ai_messages").insert({

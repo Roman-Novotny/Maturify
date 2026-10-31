@@ -1,8 +1,6 @@
 import "server-only";
-import type Anthropic from "@anthropic-ai/sdk";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { extractText, getDocumentProxy } from "unpdf";
-import { AI_MODEL, AiRefusalError } from "@/lib/ai/client";
 import { TRANSCRIBE_SYSTEM } from "@/lib/ai/prompts";
 import { recordUsage, requireAi } from "@/lib/ai/usage";
 import { chunkText, normalizeText } from "@/lib/chunking";
@@ -98,40 +96,28 @@ export async function processMaterial(supabase: Db, materialId: string) {
   }
 }
 
-const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"] as const;
-type ImageType = (typeof IMAGE_TYPES)[number];
+const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 
-/** Přepis fotky / skenu přes Claude (vision, PDF dokument). */
+/** Přepis fotky / skenu přes AI (obrázek nebo PDF jako vstup modelu). */
 export async function transcribeMaterial(supabase: Db, userId: string, materialId: string) {
   const { data: material, error } = await supabase.from("materials").select("*").eq("id", materialId).single();
   if (error) throw error;
   if (!material.storage_path || !material.mime_type) throw new MaterialError("Tenhle materiál nemá soubor k přepsání.");
 
   const isPdf = material.mime_type === "application/pdf";
-  const isImage = (IMAGE_TYPES as readonly string[]).includes(material.mime_type);
-  if (!isPdf && !isImage) throw new MaterialError("Přepsat jde jen obrázek nebo PDF.");
+  if (!isPdf && !IMAGE_TYPES.includes(material.mime_type)) throw new MaterialError("Přepsat jde jen obrázek nebo PDF.");
 
-  const anthropic = await requireAi(supabase, userId);
-  const data = Buffer.from(await download(supabase, material.storage_path)).toString("base64");
+  const ai = await requireAi(supabase, userId);
+  const base64 = Buffer.from(await download(supabase, material.storage_path)).toString("base64");
 
-  const fileBlock: Anthropic.Beta.BetaContentBlockParam = isPdf
-    ? { type: "document", source: { type: "base64", media_type: "application/pdf", data } }
-    : { type: "image", source: { type: "base64", media_type: material.mime_type as ImageType, data } };
-
-  const stream = anthropic.beta.messages.stream({
-    model: AI_MODEL,
-    max_tokens: 64000,
-    betas: ["server-side-fallback-2026-07-01"],
-    fallbacks: "default",
-    output_config: { effort: "low" },
+  const res = await ai.text({
     system: TRANSCRIBE_SYSTEM,
-    messages: [{ role: "user", content: [fileBlock, { type: "text", text: `Přepiš materiál „${material.title}“.` }] }],
+    effort: "low",
+    files: [{ mimeType: material.mime_type, base64 }],
+    messages: [{ role: "user", content: `Přepiš materiál „${material.title}“.` }],
   });
-  const message = await stream.finalMessage();
-  await recordUsage(supabase, "transcribe", message.model, message.usage);
-  if (message.stop_reason === "refusal") throw new AiRefusalError();
+  await recordUsage(supabase, "transcribe", res.model, res.usage);
 
-  const text = message.content.map((b) => (b.type === "text" ? b.text : "")).join("");
-  if (!text.trim()) throw new MaterialError("AI z materiálu nic nepřečetla.");
-  return saveTextAndChunks(supabase, material, text);
+  if (!res.text.trim()) throw new MaterialError("AI z materiálu nic nepřečetla.");
+  return saveTextAndChunks(supabase, material, res.text);
 }

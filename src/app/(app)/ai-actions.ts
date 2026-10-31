@@ -1,9 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { z } from "zod";
-import { AI_MODEL, AiRefusalError, aiErrorMessage, FALLBACK_BETA } from "@/lib/ai/client";
+import { aiErrorMessage } from "@/lib/ai/client";
 import { buildStudyContext, formatContext } from "@/lib/ai/context";
 import { GENERATE_SYSTEM, GRADING_SYSTEM } from "@/lib/ai/prompts";
 import { recordUsage, requireAi } from "@/lib/ai/usage";
@@ -49,16 +48,13 @@ export async function gradeAnswerWithAI(input: { runId: string; questionId: stri
     if (error) return { ok: false, error: "Otázka nenalezena." };
     const reference = (q.answers as { body: string; is_reference: boolean }[]).find((a) => a.is_reference)?.body;
 
-    const anthropic = await requireAi(supabase, user.id);
+    const ai = await requireAi(supabase, user.id);
     // Bez vzorové odpovědi pomůžou aspoň materiály k tématu.
     const ctx = reference ? null : await buildStudyContext(supabase, { query: q.prompt, topicId: q.topic_id });
 
-    const response = await anthropic.beta.messages.parse({
-      model: AI_MODEL,
-      max_tokens: 16000,
-      betas: [FALLBACK_BETA],
-      fallbacks: "default",
-      output_config: { effort: "medium", format: betaZodOutputFormat(GradeSchema) },
+    const response = await ai.json({
+      schema: GradeSchema,
+      effort: "medium",
       system: GRADING_SYSTEM,
       messages: [
         {
@@ -75,8 +71,7 @@ export async function gradeAnswerWithAI(input: { runId: string; questionId: stri
       ],
     });
     await recordUsage(supabase, "grade", response.model, response.usage);
-    if (response.stop_reason === "refusal") throw new AiRefusalError();
-    const grade = response.parsed_output;
+    const grade = response.data;
     if (!grade) return { ok: false, error: "AI vrátila nečitelné hodnocení. Zkus to znovu." };
 
     return { ok: true, data: { ...grade, score: Math.max(0, Math.min(1, grade.score)) } };
@@ -128,21 +123,15 @@ export async function generateDrafts(input: {
         ? (await supabase.from("flashcards").select("front").eq("topic_id", topicId)).data?.map((c) => c.front) ?? []
         : ctx.questions.map((q) => q.prompt);
 
-    const anthropic = await requireAi(supabase, user.id);
+    const ai = await requireAi(supabase, user.id);
     const task =
       input.kind === "cards"
         ? `Vytvoř ${count} studijních kartiček (front = krátká otázka nebo pojem, back = stručná přesná odpověď, max. 2–3 věty).`
         : `Vytvoř ${count} maturitních otázek k ústnímu zkoušení nebo k písemnému vysvětlení (prompt = otázka, reference = vzorová odpověď v bodech, kind = "oral" pro otázky k mluvení, jinak "open").`;
 
-    const response = await anthropic.beta.messages.parse({
-      model: AI_MODEL,
-      max_tokens: 16000,
-      betas: [FALLBACK_BETA],
-      fallbacks: "default",
-      output_config: {
-        effort: "medium",
-        format: betaZodOutputFormat(input.kind === "cards" ? CardsSchema : QuestionsSchema),
-      },
+    const response = await ai.json<{ items: CardDraft[] | QuestionDraft[] }>({
+      schema: input.kind === "cards" ? CardsSchema : QuestionsSchema,
+      effort: "medium",
       system: GENERATE_SYSTEM,
       messages: [
         {
@@ -160,10 +149,9 @@ export async function generateDrafts(input: {
       ],
     });
     await recordUsage(supabase, `generate_${input.kind}`, response.model, response.usage);
-    if (response.stop_reason === "refusal") throw new AiRefusalError();
-    if (!response.parsed_output) return { ok: false, error: "AI vrátila nečitelný výsledek. Zkus to znovu." };
+    if (!response.data) return { ok: false, error: "AI vrátila nečitelný výsledek. Zkus to znovu." };
 
-    return { ok: true, data: response.parsed_output.items.slice(0, count) };
+    return { ok: true, data: response.data.items.slice(0, count) };
   } catch (e) {
     return { ok: false, error: aiErrorMessage(e) };
   }

@@ -72,11 +72,14 @@ export default async function SettingsPage() {
           <CardTitle>Spotřeba AI (30 dní)</CardTitle>
           {!ai.configured ? (
             <p className="text-sm text-muted">
-              AI není nastavená – chybí <code className="rounded bg-panel-2 px-1">ANTHROPIC_API_KEY</code> v{" "}
-              <code className="rounded bg-panel-2 px-1">.env.local</code>.
+              AI není nastavená – chybí <code className="rounded bg-panel-2 px-1">GEMINI_API_KEY</code> (zdarma z aistudio.google.com)
+              nebo <code className="rounded bg-panel-2 px-1">ANTHROPIC_API_KEY</code> v <code className="rounded bg-panel-2 px-1">.env.local</code>.
             </p>
           ) : (
             <>
+              <p className="mb-2 text-sm text-muted">
+                {ai.provider === "gemini" ? "Google Gemini – bezplatná úroveň" : "Anthropic Claude"} · <code>{ai.model}</code>
+              </p>
               <p className="text-sm">
                 Dnes <strong>{ai.spent.toFixed(3)} $</strong> z {ai.limit.toFixed(2)} $ · za 30 dní{" "}
                 <strong>{usage.total.toFixed(2)} $</strong> ({usage.calls} požadavků)
@@ -93,7 +96,11 @@ export default async function SettingsPage() {
                   ))}
                 </ul>
               )}
-              <p className="mt-3 text-xs text-muted">Ceny jsou odhad podle počtu tokenů; přesné vyúčtování je v Anthropic Console.</p>
+              <p className="mt-3 text-xs text-muted">
+                {ai.provider === "gemini"
+                  ? "Gemini běží zdarma (projekt bez placení) – útrata je 0 $, omezený je jen počet požadavků za minutu a za den. Google může data z bezplatné úrovně použít ke zlepšování svých modelů."
+                  : "Ceny jsou odhad podle počtu tokenů; přesné vyúčtování je v Anthropic Console."}
+              </p>
             </>
           )}
         </Card>
