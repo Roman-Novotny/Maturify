@@ -1,5 +1,7 @@
 # Maturify
 
+**Živá verze:** https://maturify.vercel.app
+
 Osobní maturitní operační centrum – plánování, maturitní témata, procvičování a sledování pokroku
 pro čtyři předměty: **čeština, angličtina, informatika, matematika**.
 
@@ -46,7 +48,7 @@ free tier 0 $) v tabulce `ai_usage` a hlídá se denní limit z Nastavení. Bez 
 | 2 – Studijní systém | Otázky (otevřené, ústní, výběr, číselné) se vzorovými odpověďmi, hromadný import, materiály (poznámky + soubory ve Storage), kartičky s FSRS, testy (procvičování / na čas), sledování zvládnutí | ✅ |
 | 3 – AI Tutor | Chat se 4 režimy (vysvětli / vyzkoušej / zkoušení jako u maturity / oprav odpověď) se streamováním, RAG nad vlastními materiály (fulltext s prefixy kvůli skloňování), extrakce textu z PDF, AI přepis fotek a skenů, AI hodnocení otevřených odpovědí (student potvrdí/upraví), generování kartiček a otázek ke schválení, evidence tokenů a ceny + denní limit | ✅ |
 | 4 – Plánování | Automatický denní plán (čas podle dne v týdnu, tlak na neprobraná témata před zkouškou, bez hromadění), časovač u úkolů, kalendář s odučeným časem a náhledem plánu na 4 týdny, statistiky (čas po dnech, řada dní, testy, úspěšnost kartiček, vývoj připravenosti, potřebné tempo) | ✅ |
-| 5 – Dokončení | PWA (instalace, ikony, service worker, offline opakování kartiček se synchronizací), hlasové zkoušení (diktování, předčítání, „Mluv 2 minuty“), CSP s noncí a bezpečnostní hlavičky, opravy ze Supabase advisoru, denní strop AI požadavků | ✅ (nasazení na Vercel čeká na přihlášení) |
+| 5 – Dokončení | PWA (instalace, ikony, service worker, offline opakování kartiček se synchronizací), hlasové zkoušení (diktování, předčítání, „Mluv 2 minuty“), CSP s noncí a bezpečnostní hlavičky, opravy ze Supabase advisoru, denní strop AI požadavků | ✅ |
 
 ## Struktura
 
@@ -89,6 +91,10 @@ npx vercel env add GEMINI_API_KEY production
 npx vercel env add AI_PROVIDER production      # hodnota: gemini
 npx vercel deploy --prod
 ```
+
+Projekt na Vercelu není napojený na GitHub (účet nemá GitHub login connection), nasazuje se z CLI:
+`npx vercel deploy --prod`. Pro automatické nasazení po každém pushi: v nastavení Vercel účtu připoj GitHub
+a pak `npx vercel git connect`.
 
 Po nasazení v Supabase (Authentication → URL Configuration) nastav **Site URL** na produkční adresu
 a do **Redirect URLs** přidej `https://<adresa>/auth/callback`, jinak nebudou fungovat odkazy z potvrzovacích e-mailů.
