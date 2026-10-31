@@ -43,3 +43,6 @@ next-env.d.ts
 
 # Vercel CLI
 .vercel
+
+# Notion import – obsah sdílených poznámek nepatří do veřejného repa
+scripts/notion/*.json
