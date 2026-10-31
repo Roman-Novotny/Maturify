@@ -16,6 +16,11 @@
   --success: #36c98f;
   --warning: #e8b45c;
   --danger: #f06b7a;
+  /* Předměty = kategorická paleta v pevném pořadí (ČJ, EN, IT, MA), validovaná pro CVD na --panel. */
+  --subject-cj: #3987e5;
+  --subject-en: #d95926;
+  --subject-it: #199e70;
+  --subject-ma: #c98500;
   color-scheme: dark;
 }
 
@@ -31,6 +36,10 @@
   --success: #1f9e6c;
   --warning: #b9801c;
   --danger: #d6455a;
+  --subject-cj: #2a78d6;
+  --subject-en: #eb6834;
+  --subject-it: #1baf7a;
+  --subject-ma: #eda100;
   color-scheme: light;
 }
 

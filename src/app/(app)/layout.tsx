@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { LogOut, Settings } from "lucide-react";
+import { BarChart3, LogOut, Settings } from "lucide-react";
 import { BottomNav, SidebarNav } from "@/components/nav";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button, buttonClass } from "@/components/ui";
@@ -45,6 +45,9 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
         </Link>
         <div className="flex">
           <ThemeToggle />
+          <Link href="/stats" className={buttonClass({ variant: "ghost", size: "sm" })} aria-label="Statistiky">
+            <BarChart3 size={16} />
+          </Link>
           <Link href="/settings" className={buttonClass({ variant: "ghost", size: "sm" })} aria-label="Nastavení">
             <Settings size={16} />
           </Link>

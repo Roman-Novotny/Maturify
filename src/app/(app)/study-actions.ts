@@ -251,8 +251,12 @@ export async function reviewFlashcard(cardId: string, rating: Rating) {
   if (error) throw error;
 
   const next = schedule(card, g);
-  const { error: upErr } = await supabase.from("flashcards").update(next).eq("id", id);
+  const [{ error: upErr }, { error: logErr }] = await Promise.all([
+    supabase.from("flashcards").update(next).eq("id", id),
+    supabase.from("flashcard_reviews").insert({ flashcard_id: id, topic_id: card.topic_id, rating: g }),
+  ]);
   if (upErr) throw upErr;
+  if (logErr) console.error("flashcard_reviews insert", logErr);
 
   await recomputeTopicProgress(supabase, user.id, card.topic_id);
   // Záměrně bez revalidatePath: obnovení /review by uprostřed sezení přenačetlo frontu
@@ -476,11 +480,26 @@ export async function finishTest(runId: string) {
     // Nezodpovězené otázky se počítají jako 0.
     const total = run.question_ids.length || 1;
     const score = (attempts ?? []).reduce((acc, x) => acc + (x.score ?? 0), 0) / total;
+    const finishedAt = new Date();
     const { error } = await supabase
       .from("test_runs")
-      .update({ finished_at: new Date().toISOString(), score })
+      .update({ finished_at: finishedAt.toISOString(), score })
       .eq("id", id);
     if (error) throw error;
+
+    // Odučený čas (max. 3 h – rozdělaný test přes noc by statistiky zkreslil).
+    const minutes = Math.min(180, Math.max(1, Math.round((finishedAt.getTime() - new Date(run.started_at).getTime()) / 60000)));
+    await supabase.from("study_sessions").upsert(
+      {
+        test_run_id: run.id,
+        source: "test",
+        minutes,
+        subject_id: run.subject_id,
+        topic_id: run.topic_id,
+        started_at: run.started_at,
+      },
+      { onConflict: "test_run_id", ignoreDuplicates: true },
+    );
 
     const topics = new Set((attempts ?? []).map((x) => x.topic_id).filter((t): t is string => !!t));
     for (const t of topics) await recomputeTopicProgress(supabase, user.id, t);

@@ -2,41 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { BookOpenCheck, FileText, GraduationCap, MessageCircleQuestion, PenLine, Send, Square } from "lucide-react";
+import { FileText, Send, Square } from "lucide-react";
 import { Markdown } from "@/components/markdown";
 import { Button, Card, Select, Textarea } from "@/components/ui";
 import type { AiSource, Subject, SubjectId, TutorMode } from "@/lib/database.types";
+import { MODE_INFO } from "@/lib/tutor-modes";
 import { cn } from "@/lib/utils";
 import type { TutorEvent } from "@/app/api/tutor/route";
-
-export const MODE_INFO: Record<TutorMode, { label: string; text: string; icon: typeof PenLine; placeholder: string; starter?: string }> = {
-  explain: {
-    label: "Vysvětli mi",
-    text: "Vysvětlí látku jednoduše, postupně a na příkladech.",
-    icon: MessageCircleQuestion,
-    placeholder: "Co ti mám vysvětlit?",
-  },
-  quiz: {
-    label: "Vyzkoušej mě",
-    text: "Pokládá otázky a čeká na tvoje odpovědi.",
-    icon: BookOpenCheck,
-    placeholder: "Odpověz…",
-    starter: "Vyzkoušej mě z tohoto tématu.",
-  },
-  exam: {
-    label: "Zkoušení jako u maturity",
-    text: "Simulace ústní zkoušky s doplňujícími otázkami.",
-    icon: GraduationCap,
-    placeholder: "Mluv jako u maturity… (napiš „konec“ pro hodnocení)",
-    starter: "Jsem připraven/a, můžeme začít zkoušení.",
-  },
-  correct: {
-    label: "Oprav mou odpověď",
-    text: "Vyhodnotí odpověď podle vzorové odpovědi a vysvětlí chyby.",
-    icon: PenLine,
-    placeholder: "Vlož otázku a svou odpověď…",
-  },
-};
 
 type ChatMessage = { id: string; role: "user" | "assistant"; content: string; sources: AiSource[]; error?: boolean };
 

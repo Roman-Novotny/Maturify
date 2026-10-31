@@ -2,13 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import type { Database } from "@/lib/database.types";
-import { countDueFlashcards, getExamDates, getProfile, getProgress, getTopics, requireUser } from "@/lib/dal";
-import { suggestPlan } from "@/lib/planner";
+import { requireUser } from "@/lib/dal";
+import { buildTodayPlan } from "@/lib/plan-service";
 import { recomputeTopicProgress } from "@/lib/progress";
 import { todayISO } from "@/lib/utils";
-
-type StudyTaskInsert = Database["public"]["Tables"]["study_tasks"]["Insert"];
 
 export type ActionState = { error?: string; ok?: boolean } | undefined;
 
@@ -141,11 +138,46 @@ export async function toggleTask(formData: FormData) {
   const id = uuid.parse(formData.get("id"));
   const done = formData.get("done") === "true";
   const { supabase } = await requireUser();
-  const { error } = await supabase
+  const { data: task, error } = await supabase
     .from("study_tasks")
     .update({ done_at: done ? new Date().toISOString() : null })
-    .eq("id", id);
+    .eq("id", id)
+    .select("id, minutes, subject_id, topic_id")
+    .single();
   if (error) throw error;
+
+  // Splněný úkol = odučený čas (pro statistiky); odškrtnutí ho zase odebere.
+  if (done) {
+    await supabase
+      .from("study_sessions")
+      .upsert(
+        { task_id: task.id, source: "task", minutes: task.minutes, subject_id: task.subject_id, topic_id: task.topic_id },
+        { onConflict: "task_id", ignoreDuplicates: true },
+      );
+  } else {
+    await supabase.from("study_sessions").delete().eq("task_id", task.id).eq("source", "task");
+  }
+  revalidatePath("/plan");
+  revalidatePath("/dashboard");
+}
+
+/** Konec časovače u úkolu: zapíše skutečně odučené minuty a úkol označí jako hotový. */
+export async function finishTimedTask(taskId: string, minutes: number) {
+  const id = uuid.parse(taskId);
+  const mins = z.number().int().min(1).max(600).parse(Math.round(minutes));
+  const { supabase } = await requireUser();
+  const { data: task, error } = await supabase
+    .from("study_tasks")
+    .update({ done_at: new Date().toISOString() })
+    .eq("id", id)
+    .select("id, subject_id, topic_id")
+    .single();
+  if (error) throw error;
+  await supabase.from("study_sessions").delete().eq("task_id", id);
+  const { error: sErr } = await supabase
+    .from("study_sessions")
+    .insert({ task_id: id, source: "timer", minutes: mins, subject_id: task.subject_id, topic_id: task.topic_id });
+  if (sErr) throw sErr;
   revalidatePath("/plan");
   revalidatePath("/dashboard");
 }
@@ -159,88 +191,28 @@ export async function deleteTask(formData: FormData) {
   revalidatePath("/dashboard");
 }
 
-/**
- * Vygeneruje dnešní plán. Nehotové úkoly z minulých dnů se nepřenáší a nehromadí –
- * plán se vždy skládá znovu z aktuálních priorit (jen nehotové automatické úkoly dneška se nahradí).
- */
+/** Ruční přeplánování dneška (automaticky se plán sestaví sám při první návštěvě dne). */
 export async function generateTodayPlan() {
   const { supabase } = await requireUser();
-  const [topics, progress, exams, profile, dueCards] = await Promise.all([
-    getTopics(),
-    getProgress(),
-    getExamDates(),
-    getProfile(),
-    countDueFlashcards(),
-  ]);
-  const date = todayISO();
-
-  const { data: existing } = await supabase.from("study_tasks").select("*").eq("due_date", date);
-  const doneMinutes = (existing ?? []).filter((t) => t.done_at).reduce((a, t) => a + t.minutes, 0);
-  const keptManual = (existing ?? []).filter((t) => !t.done_at && t.kind === "custom");
-  const manualMinutes = keptManual.reduce((a, t) => a + t.minutes, 0);
-  const doneTopicIds = new Set((existing ?? []).filter((t) => t.done_at && t.topic_id).map((t) => t.topic_id));
-
-  // Kartičky na řadě mají přednost – opakování je levné a zabraňuje zapomínání.
-  const cardsDoneToday = (existing ?? []).some((t) => t.done_at && t.kind === "review" && !t.topic_id);
-  const cardMinutes = dueCards > 0 && !cardsDoneToday ? Math.min(30, Math.max(5, Math.ceil(dueCards * 0.4))) : 0;
-  const available = Math.max(0, (profile?.daily_minutes ?? 90) - doneMinutes - manualMinutes - cardMinutes);
-  const suggestions = suggestPlan(
-    topics.filter((t) => !doneTopicIds.has(t.id)),
-    progress,
-    exams,
-    available,
-  );
-
-  const { data: plan, error: planError } = await supabase
-    .from("study_plans")
-    .upsert({ plan_date: date, minutes_available: profile?.daily_minutes ?? 90 }, { onConflict: "user_id,plan_date" })
-    .select()
-    .single();
-  if (planError) throw planError;
-
-  const { error: delError } = await supabase
-    .from("study_tasks")
-    .delete()
-    .eq("due_date", date)
-    .is("done_at", null)
-    .neq("kind", "custom");
-  if (delError) throw delError;
-
-  const rows: StudyTaskInsert[] = suggestions.map((s) => ({
-    plan_id: plan.id,
-    topic_id: s.topic.id,
-    subject_id: s.topic.subject_id,
-    title: `${s.kind === "review" ? "Opakuj" : "Nauč se"}: ${s.topic.title}`,
-    kind: s.kind,
-    minutes: s.minutes,
-    due_date: date,
-  }));
-  if (cardMinutes) {
-    rows.unshift({
-      plan_id: plan.id,
-      topic_id: null,
-      subject_id: null,
-      title: `Opakuj kartičky (${dueCards})`,
-      kind: "review",
-      minutes: cardMinutes,
-      due_date: date,
-    });
-  }
-  if (rows.length) {
-    const { error } = await supabase.from("study_tasks").insert(rows);
-    if (error) throw error;
-  }
-
+  await buildTodayPlan(supabase);
   revalidatePath("/plan");
   revalidatePath("/dashboard");
+  revalidatePath("/calendar");
 }
 
 // ---------------------------------------------------------------------------
 // Nastavení
 // ---------------------------------------------------------------------------
+const minutes = z.coerce.number().int().min(0, "Minuty nemůžou být záporné.").max(720, "Max. 720 minut denně.");
 const profileSchema = z.object({
   display_name: z.string().trim().min(1, "Zadej jméno.").max(60),
-  daily_minutes: z.coerce.number().int().min(0).max(720),
+  m0: minutes,
+  m1: minutes,
+  m2: minutes,
+  m3: minutes,
+  m4: minutes,
+  m5: minutes,
+  m6: minutes,
   theme: z.enum(["dark", "light", "system"]),
   ai_enabled: z.preprocess((v) => v === "on", z.boolean()),
   ai_daily_limit_usd: z.coerce.number().min(0, "Limit nemůže být záporný.").max(100, "Limit max. 100 $."),
@@ -250,8 +222,18 @@ export async function saveProfile(_: ActionState, formData: FormData): Promise<A
   const parsed = profileSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: parsed.error.issues[0]?.message };
 
+  const { m0, m1, m2, m3, m4, m5, m6, ...rest } = parsed.data;
+  const week = [m0, m1, m2, m3, m4, m5, m6];
   const { supabase, user } = await requireUser();
-  const { error } = await supabase.from("profiles").update(parsed.data).eq("id", user.id);
+  const { error } = await supabase
+    .from("profiles")
+    .update({
+      ...rest,
+      minutes_by_weekday: week,
+      // Průměr pro starší místa, která pracují s jedním číslem.
+      daily_minutes: Math.round(week.reduce((a, b) => a + b, 0) / 7),
+    })
+    .eq("id", user.id);
   if (error) return fail(error);
 
   revalidatePath("/", "layout");

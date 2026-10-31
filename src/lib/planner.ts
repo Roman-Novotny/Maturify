@@ -49,6 +49,11 @@ export function nearestExam(exams: ExamDate[], subjectId: SubjectId | null, now 
 
 export function rankTopics(topics: Topic[], progress: UserProgress[], exams: ExamDate[], now = new Date()) {
   const byTopic = new Map(progress.map((p) => [p.topic_id, p]));
+  const isNew = (t: Topic) => (byTopic.get(t.id)?.attempts_count ?? 0) === 0;
+
+  // Kolik témat předmětu ještě nikdy nebylo procvičeno – čím víc jich zbývá na málo dní, tím větší tlak.
+  const unstudiedBySubject = new Map<SubjectId, number>();
+  for (const t of topics) if (isNew(t)) unstudiedBySubject.set(t.subject_id, (unstudiedBySubject.get(t.subject_id) ?? 0) + 1);
 
   return topics
     .map((topic) => {
@@ -60,11 +65,15 @@ export function rankTopics(topics: Topic[], progress: UserProgress[], exams: Exa
       const daysToExam = exam ? (new Date(exam.exam_at).getTime() - now.getTime()) / DAY : 180;
       const urgency = 1 / (1 + daysToExam / 30);
       const reviewDue = p?.next_review_at ? new Date(p.next_review_at) <= now : false;
+      const coverage = isNew(topic)
+        ? Math.min(1, (unstudiedBySubject.get(topic.subject_id) ?? 0) / Math.max(daysToExam, 1))
+        : 0;
 
-      const score = weakness * 0.5 + difficulty * 0.15 + urgency * 0.2 + (reviewDue ? 0.15 : 0);
+      const score = weakness * 0.5 + difficulty * 0.15 + urgency * 0.2 + (reviewDue ? 0.15 : 0) + coverage * 0.3;
 
       let reason: string;
-      if (!p || p.attempts_count === 0) reason = "Zatím neprocvičeno";
+      if (coverage >= 0.5) reason = "Nestihneš probrat vše – začni hned";
+      else if (!p || p.attempts_count === 0) reason = "Zatím neprocvičeno";
       else if (reviewDue) reason = "Je čas na opakování";
       else if (mastery < 0.5) reason = "Slabá oblast";
       else reason = "Udržování znalostí";
@@ -95,4 +104,61 @@ export function suggestPlan(
   }
 
   return plan;
+}
+
+/** Dostupné minuty pro datum (YYYY-MM-DD) podle dne v týdnu; index 0 = pondělí. */
+export function minutesForDate(minutesByWeekday: number[], isoDate: string) {
+  const weekday = (new Date(`${isoDate}T12:00:00Z`).getUTCDay() + 6) % 7;
+  return minutesByWeekday[weekday] ?? 90;
+}
+
+export function addDays(isoDate: string, days: number) {
+  const d = new Date(`${isoDate}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+export type DayPlan = { date: string; minutes: number; items: Suggestion[] };
+
+/**
+ * Náhled plánu na další dny: každý den se sestaví z aktuálních priorit a pak se „předstírá“,
+ * že ho student splnil (zvládnutí roste, opakování se posune). Plán se neukládá – při každém
+ * zobrazení se přepočítá z reálného stavu, takže nesplněné dny nic nehromadí.
+ */
+export function planRange(
+  topics: Topic[],
+  progress: UserProgress[],
+  exams: ExamDate[],
+  minutesByWeekday: number[],
+  startDate: string,
+  days: number,
+): DayPlan[] {
+  const sim = new Map(progress.map((p) => [p.topic_id, { ...p }]));
+  const out: DayPlan[] = [];
+
+  for (let i = 0; i < days; i++) {
+    const date = addDays(startDate, i);
+    const now = new Date(`${date}T08:00:00Z`);
+    const minutes = minutesForDate(minutesByWeekday, date);
+    const items = suggestPlan(topics, [...sim.values()], exams, minutes, now);
+    out.push({ date, minutes, items });
+
+    for (const it of items) {
+      const prev = sim.get(it.topic.id);
+      const mastery = prev?.mastery ?? 0;
+      const gained = it.kind === "review" ? mastery + (1 - mastery) * 0.1 : mastery + (1 - mastery) * 0.35;
+      const interval = Math.max(1, Math.round(1 + gained * gained * 20));
+      sim.set(it.topic.id, {
+        user_id: prev?.user_id ?? "",
+        topic_id: it.topic.id,
+        mastery: gained,
+        stability: interval,
+        attempts_count: (prev?.attempts_count ?? 0) + 1,
+        last_studied_at: now.toISOString(),
+        next_review_at: new Date(now.getTime() + interval * DAY).toISOString(),
+        updated_at: now.toISOString(),
+      });
+    }
+  }
+  return out;
 }

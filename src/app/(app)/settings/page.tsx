@@ -10,6 +10,7 @@ import { ThemeSelect } from "./theme-select";
 export const metadata: Metadata = { title: "Nastavení" };
 
 const KIND_LABEL = { written: "Písemná", oral: "Ústní", other: "Jiná" } as const;
+const WEEKDAYS = ["Po", "Út", "St", "Čt", "Pá", "So", "Ne"] as const;
 
 const FEATURE_LABEL: Record<string, string> = {
   tutor: "AI tutor",
@@ -39,10 +40,27 @@ export default async function SettingsPage() {
               <Label htmlFor="display_name">Jméno</Label>
               <Input id="display_name" name="display_name" defaultValue={profile?.display_name ?? ""} required maxLength={60} />
             </div>
-            <div>
-              <Label htmlFor="daily_minutes">Čas na učení denně (minuty)</Label>
-              <Input id="daily_minutes" name="daily_minutes" type="number" min={0} max={720} step={5} defaultValue={profile?.daily_minutes ?? 90} />
-            </div>
+            <fieldset>
+              <legend className="mb-1.5 text-sm font-medium">Čas na učení podle dne (minuty)</legend>
+              <div className="grid grid-cols-7 gap-1.5">
+                {WEEKDAYS.map((day, i) => (
+                  <label key={day} className="text-center text-xs text-muted">
+                    {day}
+                    <Input
+                      name={`m${i}`}
+                      type="number"
+                      min={0}
+                      max={720}
+                      step={5}
+                      defaultValue={profile?.minutes_by_weekday?.[i] ?? 90}
+                      className="mt-1 w-full px-1 text-center"
+                      aria-label={`Minuty – ${day}`}
+                    />
+                  </label>
+                ))}
+              </div>
+              <p className="mt-1 text-xs text-muted">Podle toho se skládá denní plán a náhled v kalendáři. 0 = volný den.</p>
+            </fieldset>
             <div>
               <Label htmlFor="theme">Vzhled</Label>
               <ThemeSelect defaultValue={profile?.theme ?? "dark"} />

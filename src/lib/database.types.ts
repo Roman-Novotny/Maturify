@@ -17,6 +17,8 @@ export type Profile = {
   theme: "dark" | "light" | "system";
   ai_enabled: boolean;
   ai_daily_limit_usd: number;
+  /** Minuty na učení podle dne v týdnu, index 0 = pondělí … 6 = neděle. */
+  minutes_by_weekday: number[];
   created_at: string;
   updated_at: string;
 };
@@ -233,6 +235,25 @@ export type StudySession = {
   started_at: string;
   minutes: number;
   note: string | null;
+  source: "task" | "test" | "timer" | "manual";
+  task_id: string | null;
+  test_run_id: string | null;
+};
+
+export type FlashcardReview = {
+  id: string;
+  user_id: string;
+  flashcard_id: string;
+  topic_id: string | null;
+  rating: 1 | 2 | 3 | 4;
+  reviewed_at: string;
+};
+
+export type ReadinessSnapshot = {
+  user_id: string;
+  snap_date: string;
+  overall: number;
+  by_subject: Partial<Record<SubjectId, number>>;
 };
 
 export type Database = {
@@ -268,6 +289,8 @@ export type Database = {
       ai_conversations: Table<AiConversation, "mode">;
       ai_messages: Table<AiMessage, "conversation_id" | "role" | "content">;
       ai_usage: Table<AiUsage, "feature" | "model">;
+      flashcard_reviews: Table<FlashcardReview, "flashcard_id" | "rating">;
+      readiness_snapshots: Table<ReadinessSnapshot, "snap_date" | "overall">;
     };
     Views: { [_ in never]: never };
     Functions: {

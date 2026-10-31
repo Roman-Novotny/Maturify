@@ -1,35 +1,61 @@
 import type { Metadata } from "next";
-import { CheckCircle2, Circle, RefreshCw, Trash2 } from "lucide-react";
+import Link from "next/link";
+import { CalendarDays, CheckCircle2, Circle, RefreshCw, Trash2 } from "lucide-react";
 import { ActionForm } from "@/components/action-form";
-import { Badge, Button, Card, CardTitle, EmptyState, Input, PageHeader, ProgressBar, Select } from "@/components/ui";
-import { getProfile, getSubjects, getTasksForDate, getTopics } from "@/lib/dal";
+import { Badge, Button, buttonClass, Card, CardTitle, EmptyState, Input, PageHeader, ProgressBar, Select } from "@/components/ui";
+import { getExamDates, getProfile, getProgress, getSubjects, getTasksForDate, getTopics, requireUser } from "@/lib/dal";
+import { ensureTodayPlan } from "@/lib/plan-service";
+import { addDays, minutesForDate, planRange } from "@/lib/planner";
 import { todayISO } from "@/lib/utils";
 import { addTask, deleteTask, generateTodayPlan, toggleTask } from "../actions";
+import { TaskTimer } from "./task-timer";
 
 export const metadata: Metadata = { title: "Plán" };
 
 const KIND_LABEL = { study: "Učení", review: "Opakování", test: "Test", custom: "Vlastní" } as const;
 
+const shortDay = (iso: string) =>
+  new Intl.DateTimeFormat("cs-CZ", { weekday: "short", day: "numeric", month: "numeric", timeZone: "UTC" }).format(new Date(`${iso}T12:00:00Z`));
+
 export default async function PlanPage() {
-  const [profile, subjects, topics, tasks] = await Promise.all([getProfile(), getSubjects(), getTopics(), getTasksForDate(todayISO())]);
+  const { supabase } = await requireUser();
+  const today = todayISO();
+  const [profile, subjects, topics, progress, exams] = await Promise.all([
+    getProfile(),
+    getSubjects(),
+    getTopics(),
+    getProgress(),
+    getExamDates(),
+  ]);
+  // Automatický denní plán: při první návštěvě dne se sestaví sám.
+  await ensureTodayPlan(supabase, topics.length > 0);
+  const tasks = await getTasksForDate(today);
+
   const subjectById = new Map(subjects.map((s) => [s.id, s]));
   const done = tasks.filter((t) => t.done_at).reduce((a, t) => a + t.minutes, 0);
   const total = tasks.reduce((a, t) => a + t.minutes, 0);
-  const budget = profile?.daily_minutes ?? 90;
+  const week = profile?.minutes_by_weekday ?? [90, 90, 90, 90, 90, 120, 120];
+  const budget = minutesForDate(week, today);
+  const upcoming = topics.length ? planRange(topics, progress, exams, week, addDays(today, 1), 6) : [];
 
   return (
     <div className="animate-in">
       <PageHeader
         title="Dnešní plán"
-        subtitle={`Dostupný čas: ${budget} min denně (změníš v Nastavení). Nesplněné úkoly se nehromadí – plán se skládá znovu podle priorit.`}
+        subtitle={`Dnes máš ${budget} min (podle dne v týdnu, změníš v Nastavení). Plán se každý den sestaví sám; nesplněné úkoly se nehromadí.`}
         action={
-          topics.length > 0 && (
-            <form action={generateTodayPlan}>
-              <Button type="submit" variant="secondary">
-                <RefreshCw size={16} /> {tasks.some((t) => t.kind !== "custom") ? "Přeplánovat" : "Sestavit plán"}
-              </Button>
-            </form>
-          )
+          <div className="flex gap-2">
+            <Link href="/calendar" className={buttonClass({ variant: "ghost" })}>
+              <CalendarDays size={16} /> Kalendář
+            </Link>
+            {topics.length > 0 && (
+              <form action={generateTodayPlan}>
+                <Button type="submit" variant="secondary">
+                  <RefreshCw size={16} /> Přeplánovat
+                </Button>
+              </form>
+            )}
+          </div>
         }
       />
 
@@ -61,6 +87,7 @@ export default async function PlanPage() {
                       <p className="text-xs text-muted">{KIND_LABEL[t.kind]} · {t.minutes} min</p>
                     </div>
                     {subject && <Badge color={subject.color}>{subject.short}</Badge>}
+                    {!t.done_at && <TaskTimer taskId={t.id} plannedMinutes={t.minutes} />}
                     <form action={deleteTask}>
                       <input type="hidden" name="id" value={t.id} />
                       <Button type="submit" variant="danger" size="sm" aria-label="Smazat úkol" className="md:opacity-0 md:group-hover:opacity-100">
@@ -73,7 +100,7 @@ export default async function PlanPage() {
             </ul>
           ) : (
             <EmptyState title="Žádné úkoly na dnešek">
-              {topics.length ? "Klikni na „Sestavit plán“ – vybere nejslabší a nejnaléhavější témata." : "Nejdřív si přidej témata v Předmětech."}
+              {topics.length ? "Dnes nemáš čas na učení (viz Nastavení), nebo jsou všechna témata v pohodě." : "Nejdřív si přidej témata v Předmětech."}
             </EmptyState>
           )}
         </Card>
@@ -95,6 +122,37 @@ export default async function PlanPage() {
           </ActionForm>
         </Card>
       </div>
+
+      {upcoming.length > 0 && (
+        <Card className="mt-6">
+          <CardTitle action={<Link href="/calendar" className="text-xs text-muted hover:text-primary">Celý kalendář →</Link>}>
+            Výhled na další dny
+          </CardTitle>
+          <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {upcoming.map((day) => (
+              <li key={day.date} className="rounded-xl bg-panel-2 p-3">
+                <p className="mb-2 flex justify-between text-sm font-medium capitalize">
+                  {shortDay(day.date)}
+                  <span className="text-xs font-normal text-muted">{day.minutes} min</span>
+                </p>
+                {day.items.length ? (
+                  <ul className="space-y-1 text-xs text-muted">
+                    {day.items.slice(0, 4).map((it) => (
+                      <li key={it.topic.id} className="truncate">
+                        {it.kind === "review" ? "↻" : "•"} {it.topic.title}
+                      </li>
+                    ))}
+                    {day.items.length > 4 && <li>+ {day.items.length - 4} další</li>}
+                  </ul>
+                ) : (
+                  <p className="text-xs text-muted">Volno</p>
+                )}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-3 text-xs text-muted">Náhled se přepočítává podle toho, jak se ti daří – není to závazný rozpis.</p>
+        </Card>
+      )}
     </div>
   );
 }

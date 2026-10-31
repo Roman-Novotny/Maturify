@@ -12,14 +12,24 @@ import {
   getTasksForDate,
   getTestRuns,
   getTopics,
+  requireUser,
 } from "@/lib/dal";
-import { computeReadiness, rankTopics } from "@/lib/planner";
+import { ensureTodayPlan, recordReadinessSnapshot } from "@/lib/plan-service";
+import { computeReadiness, minutesForDate, rankTopics } from "@/lib/planner";
 import { daysUntil, formatDate, pct, plural, todayISO } from "@/lib/utils";
 import { generateTodayPlan, toggleTask } from "../actions";
 
 export const metadata: Metadata = { title: "Přehled" };
 
 export default async function DashboardPage() {
+  const { supabase } = await requireUser();
+  const [base, topicsForPlan] = await Promise.all([Promise.all([getSubjects(), getProgress()]), getTopics()]);
+  // Automatický denní plán + denní snímek připravenosti (pro graf ve Statistikách).
+  await Promise.all([
+    ensureTodayPlan(supabase, topicsForPlan.length > 0),
+    recordReadinessSnapshot(supabase, base[0], topicsForPlan, base[1]),
+  ]);
+
   const [profile, subjects, topics, progress, exams, tasks, attempts, runs, dueCards] = await Promise.all([
     getProfile(),
     getSubjects(),
@@ -110,7 +120,7 @@ export default async function DashboardPage() {
             icon={<ListChecks size={16} />}
             action={
               <Link href="/plan" className="text-xs text-muted hover:text-primary">
-                {doneMinutes}/{plannedMinutes || profile?.daily_minutes || 0} min →
+                {doneMinutes}/{plannedMinutes || minutesForDate(profile?.minutes_by_weekday ?? [], todayISO())} min →
               </Link>
             }
           >
@@ -220,7 +230,16 @@ export default async function DashboardPage() {
 
       {/* Poslední výsledky */}
       <Card>
-        <CardTitle icon={<TrendingUp size={16} />}>Poslední výsledky</CardTitle>
+        <CardTitle
+          icon={<TrendingUp size={16} />}
+          action={
+            <Link href="/stats" className="text-xs text-muted hover:text-primary">
+              Statistiky →
+            </Link>
+          }
+        >
+          Poslední výsledky
+        </CardTitle>
         {runs.length ? (
           <ul className="divide-y divide-border">
             {runs.map((r) => {

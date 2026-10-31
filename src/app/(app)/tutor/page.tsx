@@ -5,7 +5,8 @@ import { buttonClass, Card, PageHeader } from "@/components/ui";
 import type { TutorMode } from "@/lib/database.types";
 import { getAiStatus, getConversation, getConversations, getSubjects, getTopics } from "@/lib/dal";
 import { cn, formatDate } from "@/lib/utils";
-import { MODE_INFO, TutorChat } from "./tutor-chat";
+import { MODE_INFO } from "@/lib/tutor-modes";
+import { TutorChat } from "./tutor-chat";
 
 export const metadata: Metadata = { title: "AI Tutor" };
 

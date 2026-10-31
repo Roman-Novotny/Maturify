@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
+import Script from "next/script";
 import "./globals.css";
 
 const inter = Inter({ variable: "--font-inter", subsets: ["latin", "latin-ext"] });
@@ -20,10 +21,13 @@ const themeScript = `try{var t=localStorage.getItem('maturify-theme')||'dark';if
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="cs" data-theme="dark" className={`${inter.variable} h-full antialiased`} suppressHydrationWarning>
-      <head>
-        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
-      </head>
-      <body className="min-h-full font-sans">{children}</body>
+      <body className="min-h-full font-sans">
+        {children}
+        {/* beforeInteractive: spustí se před hydratací, takže téma nebliká. */}
+        <Script id="theme" strategy="beforeInteractive">
+          {themeScript}
+        </Script>
+      </body>
     </html>
   );
 }

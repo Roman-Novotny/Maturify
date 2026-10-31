@@ -255,3 +255,62 @@ export async function getAiUsageSummary(days = 30) {
     byFeature: [...byFeature.entries()].map(([feature, v]) => ({ feature, ...v })).sort((a, b) => b.cost - a.cost),
   };
 }
+
+// ---------------------------------------------------------------------------
+// Fáze 4 – plánování a statistiky
+// ---------------------------------------------------------------------------
+export async function getStudySessions(sinceISO: string) {
+  const { supabase } = await requireUser();
+  const { data, error } = await supabase
+    .from("study_sessions")
+    .select("started_at, minutes, subject_id, source")
+    .gte("started_at", sinceISO)
+    .order("started_at");
+  if (error) throw error;
+  return data;
+}
+
+export async function getFlashcardReviews(sinceISO: string) {
+  const { supabase } = await requireUser();
+  const { data, error } = await supabase
+    .from("flashcard_reviews")
+    .select("reviewed_at, rating, topic_id")
+    .gte("reviewed_at", sinceISO)
+    .order("reviewed_at");
+  if (error) throw error;
+  return data;
+}
+
+export async function getReadinessSnapshots(sinceDate: string) {
+  const { supabase } = await requireUser();
+  const { data, error } = await supabase
+    .from("readiness_snapshots")
+    .select("snap_date, overall, by_subject")
+    .gte("snap_date", sinceDate)
+    .order("snap_date");
+  if (error) throw error;
+  return data;
+}
+
+export async function getTasksBetween(fromDate: string, toDate: string) {
+  const { supabase } = await requireUser();
+  const { data, error } = await supabase
+    .from("study_tasks")
+    .select("id, title, minutes, due_date, done_at, subject_id, kind")
+    .gte("due_date", fromDate)
+    .lte("due_date", toDate)
+    .order("created_at");
+  if (error) throw error;
+  return data;
+}
+
+export async function getFinishedTestRunsSince(sinceISO: string) {
+  const { supabase } = await requireUser();
+  const { data, error } = await supabase
+    .from("test_runs")
+    .select("finished_at, score, subject_id")
+    .gte("finished_at", sinceISO)
+    .order("finished_at");
+  if (error) throw error;
+  return data;
+}

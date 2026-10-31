@@ -164,10 +164,12 @@ export function TopicRow({
                     className={cn(
                       "size-7 rounded-lg border text-xs font-medium transition-colors",
                       currentRating === r
-                        ? "border-transparent text-primary-fg"
+                        ? "font-semibold text-text"
                         : "border-border text-muted hover:border-primary hover:text-text",
                     )}
-                    style={currentRating === r ? { background: color } : undefined}
+                    style={
+                      currentRating === r ? { background: `color-mix(in srgb, ${color} 30%, transparent)`, borderColor: color } : undefined
+                    }
                   >
                     {r}
                   </button>

@@ -104,12 +104,15 @@ export function ProgressRing({ value, size = 120, stroke = 10, color = "var(--pr
   );
 }
 
+/** Štítek: barvu nese tečka a podklad, text zůstává v textové barvě (čitelnost ve světlém režimu). */
 export function Badge({ children, color }: { children: ReactNode; color?: string }) {
+  const c = color ?? "var(--primary)";
   return (
     <span
-      className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
-      style={{ background: `color-mix(in srgb, ${color ?? "var(--primary)"} 18%, transparent)`, color: color ?? "var(--primary)" }}
+      className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium text-text"
+      style={{ background: `color-mix(in srgb, ${c} 16%, transparent)` }}
     >
+      <span className="size-1.5 shrink-0 rounded-full" style={{ background: c }} aria-hidden />
       {children}
     </span>
   );
@@ -118,8 +121,8 @@ export function Badge({ children, color }: { children: ReactNode; color?: string
 export function SubjectIcon({ short, color, size = 40 }: { short: string; color: string; size?: number }) {
   return (
     <span
-      className="inline-grid shrink-0 place-items-center rounded-xl font-bold"
-      style={{ width: size, height: size, fontSize: size * 0.36, background: `color-mix(in srgb, ${color} 18%, transparent)`, color }}
+      className="inline-grid shrink-0 place-items-center rounded-xl border-2 font-bold text-text"
+      style={{ width: size, height: size, fontSize: size * 0.36, background: `color-mix(in srgb, ${color} 18%, transparent)`, borderColor: color }}
     >
       {short}
     </span>
