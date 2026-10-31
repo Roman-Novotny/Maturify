@@ -62,6 +62,7 @@ export default async function TestPage({ params }: PageProps<"/test/[runId]">) {
           questions={runnerQuestions}
           deadline={deadline}
           aiAvailable={(await getAiStatus()).available}
+          lang={run.subject_id === "en" ? "en-US" : "cs-CZ"}
         />
       </div>
     );

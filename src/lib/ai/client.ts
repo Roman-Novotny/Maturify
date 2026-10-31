@@ -1,10 +1,10 @@
 import "server-only";
 import { AnthropicProvider, anthropicErrorMessage } from "./anthropic";
 import { GeminiProvider, geminiErrorMessage } from "./gemini";
-import { AiBudgetError, AiDisabledError, AiNotConfiguredError, AiRefusalError } from "./errors";
+import { AiBudgetError, AiDisabledError, AiNotConfiguredError, AiRefusalError, AiRequestLimitError } from "./errors";
 import { configuredProvider, type AiProvider } from "./provider";
 
-export { AiBudgetError, AiDisabledError, AiNotConfiguredError, AiRefusalError };
+export { AiBudgetError, AiDisabledError, AiNotConfiguredError, AiRefusalError, AiRequestLimitError };
 
 // Jedna AI vrstva pro celou appku: výběr poskytovatele, ceny, chyby. Klíče jsou jen na serveru.
 
@@ -52,7 +52,13 @@ export function estimateCost(model: string, usage: UsageLike) {
 
 /** Uživatelsky srozumitelná chybová hláška z čehokoli, co AI vrstva vyhodí. */
 export function aiErrorMessage(error: unknown) {
-  if (error instanceof AiNotConfiguredError || error instanceof AiBudgetError || error instanceof AiDisabledError || error instanceof AiRefusalError) {
+  if (
+    error instanceof AiNotConfiguredError ||
+    error instanceof AiBudgetError ||
+    error instanceof AiDisabledError ||
+    error instanceof AiRefusalError ||
+    error instanceof AiRequestLimitError
+  ) {
     return error.message;
   }
   const specific = geminiErrorMessage(error) ?? anthropicErrorMessage(error);

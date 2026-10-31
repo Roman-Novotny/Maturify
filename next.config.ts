@@ -1,7 +1,18 @@
 import type { NextConfig } from "next";
 
+// Bezpečnostní hlavičky pro všechny odpovědi. CSP s noncí nastavuje src/proxy.ts (potřebuje nonce na požadavek).
+const securityHeaders = [
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  { key: "X-Frame-Options", value: "DENY" },
+  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  // Mikrofon pro hlasové zkoušení jen pro vlastní web; kamera ani poloha appka nepotřebuje.
+  { key: "Permissions-Policy", value: "microphone=(self), camera=(), geolocation=(), payment=()" },
+  { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains" },
+];
+
 // Cache Components jsou vypnuté: skoro celá appka je per-uživatel (Supabase session v cookies).
 const nextConfig: NextConfig = {
+  poweredByHeader: false,
   turbopack: {
     rules: {
       "*.css": {
@@ -9,6 +20,19 @@ const nextConfig: NextConfig = {
         as: "*.css",
       },
     },
+  },
+  async headers() {
+    return [
+      { source: "/(.*)", headers: securityHeaders },
+      {
+        source: "/sw.js",
+        headers: [
+          { key: "Content-Type", value: "application/javascript; charset=utf-8" },
+          { key: "Cache-Control", value: "no-cache, no-store, must-revalidate" },
+          { key: "Content-Security-Policy", value: "default-src 'self'; script-src 'self'" },
+        ],
+      },
+    ];
   },
 };
 

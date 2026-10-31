@@ -23,3 +23,9 @@ export class AiRefusalError extends Error {
     super("AI na tohle odmítla odpovědět. Zkus otázku formulovat jinak.");
   }
 }
+
+export class AiRequestLimitError extends Error {
+  constructor(limit: number) {
+    super(`Dnes jsi využil/a všech ${limit} AI požadavků. Zítra to půjde znovu.`);
+  }
+}

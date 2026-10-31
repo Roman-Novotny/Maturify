@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { CheckCircle2, Clock, Sparkles, XCircle } from "lucide-react";
+import { CheckCircle2, Clock, Mic, MicOff, Sparkles, XCircle } from "lucide-react";
 import { Button, Card, Input, ProgressBar, Textarea } from "@/components/ui";
 import type { Question } from "@/lib/database.types";
+import { useDictation } from "@/lib/use-speech";
 import { cn } from "@/lib/utils";
 import { gradeAnswerWithAI, type AiGrade } from "../../ai-actions";
 import { finishTest, submitAnswer, type AnswerResult } from "../../study-actions";
@@ -31,12 +32,15 @@ export function TestRunner({
   questions,
   deadline,
   aiAvailable,
+  lang = "cs-CZ",
 }: {
   runId: string;
   title: string;
   questions: RunnerQuestion[];
   deadline: number | null;
   aiAvailable: boolean;
+  /** Jazyk diktování (angličtina = en-US). */
+  lang?: string;
 }) {
   const firstOpen = questions.findIndex((q) => !q.answered);
   const [index, setIndex] = useState(firstOpen === -1 ? questions.length : firstOpen);
@@ -46,6 +50,11 @@ export function TestRunner({
   const [result, setResult] = useState<AnswerResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [aiGrade, setAiGrade] = useState<AiGrade | null>(null);
+  const dictation = useDictation(lang, (text) => setAnswer((prev) => (prev ? `${prev.trimEnd()} ${text}` : text)));
+  const stopDictation = dictation.stop;
+  useEffect(() => {
+    if (revealed) stopDictation();
+  }, [revealed, stopDictation]);
   const [grading, setGrading] = useState(false);
   const [pending, startTransition] = useTransition();
   const startedAt = useRef(0);
@@ -98,6 +107,7 @@ export function TestRunner({
   }
 
   function next() {
+    dictation.stop();
     setAnswer("");
     setRevealed(false);
     setResult(null);
@@ -183,18 +193,36 @@ export function TestRunner({
         )}
 
         {isSelfGraded && (
-          <Textarea
-            value={answer}
-            onChange={(e) => setAnswer(e.target.value)}
-            rows={q.kind === "oral" ? 4 : 6}
-            placeholder={
-              q.kind === "oral"
-                ? "Odpověz nahlas a sem si případně napiš hlavní body…"
-                : "Napiš svou odpověď (nebo jen klíčová slova)…"
-            }
-            aria-label="Tvoje odpověď"
-            disabled={revealed}
-          />
+          <div className="space-y-2">
+            <Textarea
+              value={answer}
+              onChange={(e) => setAnswer(e.target.value)}
+              rows={q.kind === "oral" ? 4 : 6}
+              placeholder={
+                dictation.interim ||
+                (q.kind === "oral"
+                  ? "Odpověz nahlas (mikrofon) nebo si sem napiš hlavní body…"
+                  : "Napiš svou odpověď (nebo jen klíčová slova)…")
+              }
+              aria-label="Tvoje odpověď"
+              disabled={revealed}
+            />
+            {dictation.supported && !revealed && (
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <Button
+                  variant={dictation.listening ? "danger" : "ghost"}
+                  size="sm"
+                  onClick={() => (dictation.listening ? dictation.stop() : dictation.start())}
+                  aria-pressed={dictation.listening}
+                >
+                  {dictation.listening ? <MicOff size={14} /> : <Mic size={14} />}
+                  {dictation.listening ? "Zastavit diktování" : "Odpovědět hlasem"}
+                </Button>
+                {dictation.listening && <span className="text-danger">Poslouchám…</span>}
+                {dictation.error && <span className="text-danger">{dictation.error}</span>}
+              </div>
+            )}
+          </div>
         )}
 
         {/* Jistota – jen než odpověď odešleš */}

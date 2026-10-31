@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { FileText, Send, Square } from "lucide-react";
+import { FileText, Mic, MicOff, Send, Square, Timer, Volume2, VolumeX } from "lucide-react";
 import { Markdown } from "@/components/markdown";
 import { Button, Card, Select, Textarea } from "@/components/ui";
 import type { AiSource, Subject, SubjectId, TutorMode } from "@/lib/database.types";
 import { MODE_INFO } from "@/lib/tutor-modes";
+import { useDictation, useSpeaker } from "@/lib/use-speech";
 import { cn } from "@/lib/utils";
 import type { TutorEvent } from "@/app/api/tutor/route";
 
@@ -42,6 +43,93 @@ export function TutorChat({
   const started = !!conversationId || messages.length > 0;
   const info = MODE_INFO[mode];
 
+  // --- Hlas: diktování, předčítání, hlasové zkoušení ---------------------------------
+  const lang = subjectId === "en" ? "en-US" : "cs-CZ";
+  const [voiceMode, setVoiceMode] = useState(false);
+  const voiceModeRef = useRef(false);
+  const inputRef = useRef("");
+  const [speakingLeft, setSpeakingLeft] = useState<number | null>(null);
+  const speaker = useSpeaker();
+  const appendDictated = useCallback((text: string) => {
+    setInput((prev) => {
+      const next = prev ? `${prev.trimEnd()} ${text}` : text;
+      inputRef.current = next;
+      return next;
+    });
+  }, []);
+  const dictation = useDictation(lang, appendDictated);
+
+  useEffect(() => {
+    inputRef.current = input;
+  }, [input]);
+
+  useEffect(() => {
+    try {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- volba je uložená v prohlížeči
+      setVoiceMode(localStorage.getItem("maturify-voice") === "1");
+    } catch {}
+  }, []);
+  useEffect(() => {
+    voiceModeRef.current = voiceMode;
+  }, [voiceMode]);
+
+  function toggleVoiceMode() {
+    const next = !voiceMode;
+    setVoiceMode(next);
+    if (!next) speaker.stop();
+    try {
+      localStorage.setItem("maturify-voice", next ? "1" : "0");
+    } catch {}
+  }
+
+  /** Po odpovědi tutora: v hlasovém režimu ji přečti a ve zkoušení pak rovnou poslouchej. */
+  const afterReply = useCallback(
+    (text: string) => {
+      if (!voiceModeRef.current || !text) return;
+      speaker.speak(text, lang, () => {
+        if (voiceModeRef.current && (mode === "exam" || mode === "quiz") && dictation.supported) dictation.start();
+      });
+    },
+    [speaker, lang, mode, dictation],
+  );
+
+  function toggleMic() {
+    if (dictation.listening) {
+      dictation.stop();
+      // V hlasovém režimu odeslat hned po domluvení.
+      if (voiceMode) setTimeout(() => send(inputRef.current), 400);
+    } else {
+      speaker.stop();
+      dictation.start();
+    }
+  }
+
+  // Angličtina: „mluv 2 minuty na téma“ jako u ústní maturity.
+  useEffect(() => {
+    if (speakingLeft === null) return;
+    if (speakingLeft <= 0) {
+      dictation.stop();
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- konec odpočtu
+      setSpeakingLeft(null);
+      setTimeout(() => {
+        const said = inputRef.current.trim();
+        if (said) send(`[Spoken answer – 2 minutes]\n${said}`);
+      }, 600);
+      return;
+    }
+    const t = setTimeout(() => setSpeakingLeft((s) => (s === null ? null : s - 1)), 1000);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [speakingLeft]);
+
+  function startTwoMinutes() {
+    speaker.stop();
+    setInput("");
+    inputRef.current = "";
+    dictation.start();
+    setSpeakingLeft(120);
+  }
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages]);
@@ -59,6 +147,8 @@ export function TutorChat({
     ]);
     const update = (fn: (msg: ChatMessage) => ChatMessage) =>
       setMessages((m) => m.map((msg) => (msg.id === assistantId ? fn(msg) : msg)));
+    let reply = "";
+    let failed = false;
 
     const controller = new AbortController();
     abortRef.current = controller;
@@ -94,8 +184,10 @@ export function TutorChat({
             }
             update((msg) => ({ ...msg, sources: event.sources }));
           } else if (event.type === "text") {
+            reply += event.text;
             update((msg) => ({ ...msg, content: msg.content + event.text }));
           } else if (event.type === "error") {
+            failed = true;
             update((msg) => ({ ...msg, content: msg.content ? `${msg.content}\n\n⚠️ ${event.message}` : event.message, error: true }));
           }
         }
@@ -109,6 +201,7 @@ export function TutorChat({
       abortRef.current = null;
       router.refresh(); // historie konverzací vpravo
     }
+    if (!failed) afterReply(reply);
   }
 
   const topicOptions = topics.filter((t) => !subjectId || t.subject_id === subjectId);
@@ -239,6 +332,42 @@ export function TutorChat({
         <div ref={bottomRef} />
       </div>
 
+      {/* Hlas */}
+      {(dictation.supported || speaker.supported) && !disabled && (
+        <div className="flex flex-wrap items-center gap-2 border-t border-border px-3 pt-3 text-xs">
+          {speaker.supported && (
+            <Button variant={voiceMode ? "secondary" : "ghost"} size="sm" onClick={toggleVoiceMode} aria-pressed={voiceMode}>
+              {voiceMode ? <Volume2 size={14} /> : <VolumeX size={14} />}
+              {mode === "exam" || mode === "quiz" ? "Hlasové zkoušení" : "Číst odpovědi nahlas"}
+            </Button>
+          )}
+          {speaker.speaking && (
+            <Button variant="ghost" size="sm" onClick={speaker.stop}>
+              Zastavit čtení
+            </Button>
+          )}
+          {subjectId === "en" && mode === "exam" && dictation.supported && (
+            <Button variant="ghost" size="sm" onClick={startTwoMinutes} disabled={speakingLeft !== null || streaming}>
+              <Timer size={14} /> Mluv 2 minuty
+            </Button>
+          )}
+          {speakingLeft !== null && (
+            <span className="rounded-lg bg-primary/15 px-2 py-1 font-medium text-primary tabular-nums" role="timer">
+              {Math.floor(speakingLeft / 60)}:{String(speakingLeft % 60).padStart(2, "0")}
+            </span>
+          )}
+          {dictation.listening && (
+            <span className="flex items-center gap-1 text-danger">
+              <span className="size-2 animate-pulse rounded-full bg-danger" /> Poslouchám ({lang === "en-US" ? "EN" : "CZ"})…
+            </span>
+          )}
+          {dictation.error && <span className="text-danger">{dictation.error}</span>}
+          {voiceMode && (mode === "exam" || mode === "quiz") && (
+            <span className="text-muted">Odpověz nahlas a zmáčkni mikrofon – odešle se samo.</span>
+          )}
+        </div>
+      )}
+
       {/* Vstup */}
       <form
         className="flex items-end gap-2 border-t border-border p-3"
@@ -257,11 +386,22 @@ export function TutorChat({
             }
           }}
           rows={mode === "correct" || mode === "exam" ? 4 : 2}
-          placeholder={disabled ? "AI není dostupná" : info.placeholder}
+          placeholder={disabled ? "AI není dostupná" : dictation.interim || info.placeholder}
           disabled={disabled}
           aria-label="Zpráva"
           className="min-h-12 resize-none"
         />
+        {dictation.supported && !disabled && (
+          <Button
+            variant={dictation.listening ? "danger" : "ghost"}
+            onClick={toggleMic}
+            aria-label={dictation.listening ? "Zastavit diktování" : "Diktovat"}
+            aria-pressed={dictation.listening}
+            disabled={streaming}
+          >
+            {dictation.listening ? <MicOff size={16} /> : <Mic size={16} />}
+          </Button>
+        )}
         {streaming ? (
           <Button variant="secondary" onClick={() => abortRef.current?.abort()} aria-label="Zastavit">
             <Square size={16} />

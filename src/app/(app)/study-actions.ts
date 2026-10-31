@@ -242,26 +242,94 @@ export async function deleteFlashcard(formData: FormData) {
 }
 
 /** Ohodnocení kartičky při opakování. Stav se čte z DB, klientovi se nevěří. */
-export async function reviewFlashcard(cardId: string, rating: Rating) {
-  const id = uuid.parse(cardId);
-  const g = z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]).parse(rating);
-  const { supabase, user } = await requireUser();
+const ratingSchema = z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]);
 
+/** Jedno ohodnocení kartičky. Stav se čte z DB, klientovi se nevěří; `now` = čas skutečného opakování. */
+async function applyReview(supabase: Awaited<ReturnType<typeof requireUser>>["supabase"], id: string, g: Rating, now: Date) {
   const { data: card, error } = await supabase.from("flashcards").select("*").eq("id", id).single();
   if (error) throw error;
 
-  const next = schedule(card, g);
+  const next = schedule(card, g, now);
   const [{ error: upErr }, { error: logErr }] = await Promise.all([
     supabase.from("flashcards").update(next).eq("id", id),
-    supabase.from("flashcard_reviews").insert({ flashcard_id: id, topic_id: card.topic_id, rating: g }),
+    supabase
+      .from("flashcard_reviews")
+      .insert({ flashcard_id: id, topic_id: card.topic_id, rating: g, reviewed_at: now.toISOString() }),
   ]);
   if (upErr) throw upErr;
   if (logErr) console.error("flashcard_reviews insert", logErr);
+  return { topicId: card.topic_id, due_at: next.due_at };
+}
 
-  await recomputeTopicProgress(supabase, user.id, card.topic_id);
+/** Ohodnocení kartičky při opakování. */
+export async function reviewFlashcard(cardId: string, rating: Rating) {
+  const id = uuid.parse(cardId);
+  const g = ratingSchema.parse(rating);
+  const { supabase, user } = await requireUser();
+  const res = await applyReview(supabase, id, g, new Date());
+  await recomputeTopicProgress(supabase, user.id, res.topicId);
   // Záměrně bez revalidatePath: obnovení /review by uprostřed sezení přenačetlo frontu
   // (a zahodilo karty vrácené přes „Znovu“). Ostatní stránky jsou dynamické a načtou se čerstvé.
-  return { due_at: next.due_at };
+  return { due_at: res.due_at };
+}
+
+// ---------------------------------------------------------------------------
+// Offline opakování (PWA)
+// ---------------------------------------------------------------------------
+export type OfflineCard = {
+  id: string;
+  front: string;
+  back: string;
+  topicTitle: string;
+  stability: number;
+  difficulty: number;
+  reps: number;
+  lapses: number;
+  state: "new" | "learning" | "review" | "relearning";
+  last_review_at: string | null;
+  due_at: string;
+};
+
+/** Balíček kartiček splatných do 7 dní – uloží se do zařízení pro opakování bez internetu. */
+export async function getOfflineDeck(): Promise<OfflineCard[]> {
+  const { supabase } = await requireUser();
+  const until = new Date(Date.now() + 7 * 86_400_000).toISOString();
+  const { data, error } = await supabase
+    .from("flashcards")
+    .select("id, front, back, stability, difficulty, reps, lapses, state, last_review_at, due_at, topics(title)")
+    .lte("due_at", until)
+    .order("due_at")
+    .limit(300);
+  if (error) throw error;
+  return data.map(({ topics, ...c }) => ({ ...c, topicTitle: (topics as unknown as { title: string } | null)?.title ?? "" }));
+}
+
+const offlineSchema = z
+  .array(z.object({ cardId: uuid, rating: ratingSchema, reviewedAt: z.iso.datetime() }))
+  .max(1000);
+
+/**
+ * Dorovná hodnocení udělaná offline – v pořadí, jak proběhla, s jejich skutečným časem.
+ * Neexistující (mezitím smazané) kartičky se přeskočí. Vrací počet zapsaných.
+ */
+export async function syncOfflineReviews(input: z.input<typeof offlineSchema>) {
+  const items = offlineSchema.parse(input).sort((a, b) => a.reviewedAt.localeCompare(b.reviewedAt));
+  const { supabase, user } = await requireUser();
+  const topics = new Set<string>();
+  let synced = 0;
+  for (const it of items) {
+    // Budoucí čas (posunuté hodiny v zařízení) nepřijmout.
+    const at = new Date(Math.min(new Date(it.reviewedAt).getTime(), Date.now()));
+    try {
+      const res = await applyReview(supabase, it.cardId, it.rating, at);
+      topics.add(res.topicId);
+      synced++;
+    } catch (e) {
+      console.error("offline review skipped", it.cardId, e);
+    }
+  }
+  for (const t of topics) await recomputeTopicProgress(supabase, user.id, t);
+  return synced;
 }
 
 // ---------------------------------------------------------------------------

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { BarChart3, LogOut, Settings } from "lucide-react";
 import { BottomNav, SidebarNav } from "@/components/nav";
+import { OfflineSync } from "@/components/offline-sync";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button, buttonClass } from "@/components/ui";
 import { countDueFlashcards, getProfile } from "@/lib/dal";
@@ -61,6 +62,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
 
       <main className="mx-auto w-full max-w-6xl px-4 pt-6 pb-28 md:px-8 md:pt-10 md:pb-12">{children}</main>
       <BottomNav />
+      <OfflineSync />
     </div>
   );
 }
