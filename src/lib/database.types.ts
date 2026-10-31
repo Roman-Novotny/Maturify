@@ -16,6 +16,7 @@ export type Profile = {
   daily_minutes: number;
   theme: "dark" | "light" | "system";
   ai_enabled: boolean;
+  ai_daily_limit_usd: number;
   created_at: string;
   updated_at: string;
 };
@@ -80,6 +81,8 @@ export type Material = {
   status: "uploaded" | "processing" | "ready" | "error";
   mime_type: string | null;
   size_bytes: number | null;
+  processed_at: string | null;
+  error: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -88,8 +91,48 @@ export type MaterialChunk = {
   id: string;
   user_id: string;
   material_id: string;
+  topic_id: string | null;
+  subject_id: SubjectId | null;
   idx: number;
   content: string;
+  created_at: string;
+};
+
+export type TutorMode = "explain" | "quiz" | "exam" | "correct";
+
+export type AiConversation = {
+  id: string;
+  user_id: string;
+  mode: TutorMode;
+  subject_id: SubjectId | null;
+  topic_id: string | null;
+  title: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AiSource = { material_id: string; title: string };
+
+export type AiMessage = {
+  id: string;
+  user_id: string;
+  conversation_id: string;
+  role: "user" | "assistant";
+  content: string;
+  sources: AiSource[];
+  created_at: string;
+};
+
+export type AiUsage = {
+  id: string;
+  user_id: string;
+  feature: string;
+  model: string;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  cost_usd: number;
   created_at: string;
 };
 
@@ -222,9 +265,17 @@ export type Database = {
       study_tasks: Table<StudyTask, "title">;
       study_sessions: Table<StudySession>;
       test_runs: Table<TestRun, "question_ids">;
+      ai_conversations: Table<AiConversation, "mode">;
+      ai_messages: Table<AiMessage, "conversation_id" | "role" | "content">;
+      ai_usage: Table<AiUsage, "feature" | "model">;
     };
     Views: { [_ in never]: never };
-    Functions: { [_ in never]: never };
+    Functions: {
+      search_material_chunks: {
+        Args: { query: string; p_topic_id?: string | null; p_subject_id?: string | null; match_count?: number };
+        Returns: { id: string; material_id: string; topic_id: string | null; title: string; content: string; rank: number }[];
+      };
+    };
     Enums: { [_ in never]: never };
     CompositeTypes: { [_ in never]: never };
   };

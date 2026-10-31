@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Trash2 } from "lucide-react";
 import { ActionForm } from "@/components/action-form";
 import { Badge, Button, Card, CardTitle, EmptyState, Input, Label, PageHeader, Select } from "@/components/ui";
-import { getExamDates, getProfile, getSubjects } from "@/lib/dal";
+import { getAiStatus, getAiUsageSummary, getExamDates, getProfile, getSubjects } from "@/lib/dal";
 import { daysUntil, formatDate } from "@/lib/utils";
 import { addExam, deleteExam, saveProfile } from "../actions";
 import { ThemeSelect } from "./theme-select";
@@ -11,8 +11,21 @@ export const metadata: Metadata = { title: "Nastavení" };
 
 const KIND_LABEL = { written: "Písemná", oral: "Ústní", other: "Jiná" } as const;
 
+const FEATURE_LABEL: Record<string, string> = {
+  tutor: "AI tutor",
+  grade: "Hodnocení odpovědí",
+  generate: "Generování kartiček a otázek",
+  transcribe: "Přepis materiálů",
+};
+
 export default async function SettingsPage() {
-  const [profile, subjects, exams] = await Promise.all([getProfile(), getSubjects(), getExamDates()]);
+  const [profile, subjects, exams, ai, usage] = await Promise.all([
+    getProfile(),
+    getSubjects(),
+    getExamDates(),
+    getAiStatus(),
+    getAiUsageSummary(30),
+  ]);
   const subjectById = new Map(subjects.map((s) => [s.id, s]));
 
   return (
@@ -36,10 +49,53 @@ export default async function SettingsPage() {
             </div>
             <label className="flex items-center gap-3 text-sm">
               <input type="checkbox" name="ai_enabled" defaultChecked={profile?.ai_enabled ?? true} className="size-4 accent-[var(--primary)]" />
-              Povolit AI funkce (Fáze 3) – appka funguje i bez nich
+              Povolit AI funkce – appka funguje i bez nich
             </label>
+            <div>
+              <Label htmlFor="ai_daily_limit_usd">Denní limit útraty za AI ($)</Label>
+              <Input
+                id="ai_daily_limit_usd"
+                name="ai_daily_limit_usd"
+                type="number"
+                min={0}
+                max={100}
+                step={0.25}
+                defaultValue={profile?.ai_daily_limit_usd ?? 1}
+              />
+              <p className="mt-1 text-xs text-muted">Po dosažení limitu se AI do půlnoci vypne. 0 = AI úplně zakázat.</p>
+            </div>
             <Button type="submit">Uložit</Button>
           </ActionForm>
+        </Card>
+
+        <Card className="lg:order-last">
+          <CardTitle>Spotřeba AI (30 dní)</CardTitle>
+          {!ai.configured ? (
+            <p className="text-sm text-muted">
+              AI není nastavená – chybí <code className="rounded bg-panel-2 px-1">ANTHROPIC_API_KEY</code> v{" "}
+              <code className="rounded bg-panel-2 px-1">.env.local</code>.
+            </p>
+          ) : (
+            <>
+              <p className="text-sm">
+                Dnes <strong>{ai.spent.toFixed(3)} $</strong> z {ai.limit.toFixed(2)} $ · za 30 dní{" "}
+                <strong>{usage.total.toFixed(2)} $</strong> ({usage.calls} požadavků)
+              </p>
+              {usage.byFeature.length > 0 && (
+                <ul className="mt-3 divide-y divide-border text-sm">
+                  {usage.byFeature.map((f) => (
+                    <li key={f.feature} className="flex justify-between py-1.5">
+                      <span>{FEATURE_LABEL[f.feature] ?? f.feature}</span>
+                      <span className="text-muted tabular-nums">
+                        {f.calls}× · {f.cost.toFixed(3)} $
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <p className="mt-3 text-xs text-muted">Ceny jsou odhad podle počtu tokenů; přesné vyúčtování je v Anthropic Console.</p>
+            </>
+          )}
         </Card>
 
         <Card>

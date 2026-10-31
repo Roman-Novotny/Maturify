@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CheckCircle2, ChevronLeft, CircleDashed, XCircle } from "lucide-react";
 import { Badge, buttonClass, Card, ProgressRing, ScoreText } from "@/components/ui";
-import { getSubjects, requireUser } from "@/lib/dal";
+import { getAiStatus, getSubjects, requireUser } from "@/lib/dal";
 import { cn, formatDate, pct } from "@/lib/utils";
 import { TestRunner, type RunnerQuestion } from "./test-runner";
 
@@ -56,7 +56,13 @@ export default async function TestPage({ params }: PageProps<"/test/[runId]">) {
     return (
       <div className="animate-in mx-auto max-w-3xl space-y-6">
         {header}
-        <TestRunner runId={run.id} title={title} questions={runnerQuestions} deadline={deadline} />
+        <TestRunner
+          runId={run.id}
+          title={title}
+          questions={runnerQuestions}
+          deadline={deadline}
+          aiAvailable={(await getAiStatus()).available}
+        />
       </div>
     );
   }
@@ -132,6 +138,7 @@ export default async function TestPage({ params }: PageProps<"/test/[runId]">) {
                   <div className="flex shrink-0 flex-col items-end gap-1">
                     {s !== null && <ScoreText score={s} />}
                     {a?.graded_by === "self" && <Badge color="var(--muted)">sebehodnocení</Badge>}
+                    {a?.graded_by === "ai" && <Badge>hodnotila AI</Badge>}
                   </div>
                 </div>
               </Card>

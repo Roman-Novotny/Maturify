@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ChevronLeft, Layers, Play, Timer } from "lucide-react";
+import { ChevronLeft, Layers, Play, Sparkles, Timer } from "lucide-react";
 import { Badge, Button, buttonClass, Card, CardTitle, EmptyState, ProgressRing, ScoreText, Select } from "@/components/ui";
 import {
+  getAiStatus,
   getDueFlashcards,
   getFlashcards,
   getMaterials,
@@ -43,11 +44,12 @@ export default async function TopicPage({ params, searchParams }: PageProps<"/su
   const [subject, topic] = await Promise.all([getSubject(id), getTopic(topicId)]);
   if (!subject || !topic || topic.subject_id !== subject.id) notFound();
 
-  const [questions, cards, dueCards, progress] = await Promise.all([
+  const [questions, cards, dueCards, progress, ai] = await Promise.all([
     getQuestions(topic.id),
     getFlashcards(topic.id),
     getDueFlashcards({ topicId: topic.id }),
     getProgress(),
+    getAiStatus(),
   ]);
   const p = progress.find((x) => x.topic_id === topic.id);
   const mastery = p?.mastery ?? 0;
@@ -68,6 +70,16 @@ export default async function TopicPage({ params, searchParams }: PageProps<"/su
           <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">{topic.title}</h1>
           {topic.description && <p className="mt-2 max-w-2xl text-sm whitespace-pre-line text-muted">{topic.description}</p>}
           {p?.next_review_at && <p className="mt-2 text-xs text-muted">Další opakování: {formatDate(p.next_review_at)}</p>}
+          {ai.configured && ai.enabled && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Link href={`/tutor?topic=${topic.id}&mode=explain`} className={buttonClass({ variant: "secondary", size: "sm" })}>
+                <Sparkles size={14} /> Vysvětli mi to
+              </Link>
+              <Link href={`/tutor?topic=${topic.id}&mode=exam`} className={buttonClass({ variant: "ghost", size: "sm" })}>
+                Zkoušení jako u maturity
+              </Link>
+            </div>
+          )}
         </div>
         <ProgressRing value={mastery} size={84} stroke={8} color={subject.color}>
           <span className="text-sm font-semibold">{Math.round(mastery * 100)}%</span>
@@ -136,9 +148,11 @@ export default async function TopicPage({ params, searchParams }: PageProps<"/su
         })}
       </nav>
 
-      {tab === "questions" && <QuestionsPanel topicId={topic.id} questions={questions} />}
-      {tab === "cards" && <CardsPanel topicId={topic.id} cards={cards} hasQuestions={questions.some((q) => q.reference)} />}
-      {tab === "materials" && <MaterialsPanel topicId={topic.id} materials={await getMaterials(topic.id)} />}
+      {tab === "questions" && <QuestionsPanel topicId={topic.id} questions={questions} aiAvailable={ai.available} />}
+      {tab === "cards" && (
+        <CardsPanel topicId={topic.id} cards={cards} hasQuestions={questions.some((q) => q.reference)} aiAvailable={ai.available} />
+      )}
+      {tab === "materials" && <MaterialsPanel topicId={topic.id} materials={await getMaterials(topic.id)} aiAvailable={ai.available} />}
       {tab === "history" && <HistoryPanel topicId={topic.id} />}
     </div>
   );

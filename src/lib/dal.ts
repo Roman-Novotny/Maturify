@@ -1,6 +1,8 @@
 import "server-only";
 import { cache } from "react";
 import { redirect } from "next/navigation";
+import { isAiConfigured } from "@/lib/ai/client";
+import { getTodaySpend } from "@/lib/ai/usage";
 import { createClient } from "@/lib/supabase/server";
 import type { SubjectId } from "@/lib/database.types";
 
@@ -186,4 +188,67 @@ export async function getTopicCounts() {
     return map;
   };
   return { questions: count(q.data), cards: count(c.data), materials: count(m.data) };
+}
+
+// ---------------------------------------------------------------------------
+// Fáze 3 – AI
+// ---------------------------------------------------------------------------
+export const getAiStatus = cache(async () => {
+  const { supabase } = await requireUser();
+  const profile = await getProfile();
+  const configured = isAiConfigured();
+  const spent = configured ? await getTodaySpend(supabase) : 0;
+  const limit = Number(profile?.ai_daily_limit_usd ?? 1);
+  return {
+    configured,
+    enabled: profile?.ai_enabled ?? true,
+    /** Jde AI teď použít? (klíč + zapnuto + nevyčerpaný limit) */
+    available: configured && (profile?.ai_enabled ?? true) && spent < limit,
+    spent,
+    limit,
+  };
+});
+
+export async function getConversations(limit = 30) {
+  const { supabase } = await requireUser();
+  const { data, error } = await supabase
+    .from("ai_conversations")
+    .select("*")
+    .order("updated_at", { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return data;
+}
+
+export async function getConversation(id: string) {
+  const { supabase } = await requireUser();
+  const { data: conversation } = await supabase.from("ai_conversations").select("*").eq("id", id).maybeSingle();
+  if (!conversation) return null;
+  const { data: messages, error } = await supabase
+    .from("ai_messages")
+    .select("*")
+    .eq("conversation_id", id)
+    .order("created_at");
+  if (error) throw error;
+  return { conversation, messages };
+}
+
+export async function getAiUsageSummary(days = 30) {
+  const { supabase } = await requireUser();
+  const since = new Date(Date.now() - days * 86_400_000).toISOString();
+  const { data, error } = await supabase.from("ai_usage").select("feature, cost_usd, input_tokens, output_tokens").gte("created_at", since);
+  if (error) throw error;
+  const byFeature = new Map<string, { cost: number; calls: number }>();
+  for (const r of data) {
+    const key = r.feature.replace(/^(tutor|generate)_.*/, "$1");
+    const cur = byFeature.get(key) ?? { cost: 0, calls: 0 };
+    cur.cost += Number(r.cost_usd);
+    cur.calls += 1;
+    byFeature.set(key, cur);
+  }
+  return {
+    total: data.reduce((a, r) => a + Number(r.cost_usd), 0),
+    calls: data.length,
+    byFeature: [...byFeature.entries()].map(([feature, v]) => ({ feature, ...v })).sort((a, b) => b.cost - a.cost),
+  };
 }

@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { CheckCircle2, Clock, XCircle } from "lucide-react";
+import { CheckCircle2, Clock, Sparkles, XCircle } from "lucide-react";
 import { Button, Card, Input, ProgressBar, Textarea } from "@/components/ui";
 import type { Question } from "@/lib/database.types";
 import { cn } from "@/lib/utils";
+import { gradeAnswerWithAI, type AiGrade } from "../../ai-actions";
 import { finishTest, submitAnswer, type AnswerResult } from "../../study-actions";
 
 export type RunnerQuestion = {
@@ -29,11 +30,13 @@ export function TestRunner({
   title,
   questions,
   deadline,
+  aiAvailable,
 }: {
   runId: string;
   title: string;
   questions: RunnerQuestion[];
   deadline: number | null;
+  aiAvailable: boolean;
 }) {
   const firstOpen = questions.findIndex((q) => !q.answered);
   const [index, setIndex] = useState(firstOpen === -1 ? questions.length : firstOpen);
@@ -42,6 +45,8 @@ export function TestRunner({
   const [confidence, setConfidence] = useState(3);
   const [result, setResult] = useState<AnswerResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [aiGrade, setAiGrade] = useState<AiGrade | null>(null);
+  const [grading, setGrading] = useState(false);
   const [pending, startTransition] = useTransition();
   const startedAt = useRef(0);
   const q = questions[index];
@@ -68,6 +73,7 @@ export function TestRunner({
         question_id: q.id,
         answer: answer.trim(),
         self_score: selfScore,
+        ai_graded: !!aiGrade,
         confidence,
         duration_sec: Math.round((Date.now() - startedAt.current) / 1000),
       });
@@ -77,10 +83,25 @@ export function TestRunner({
     });
   }
 
+  async function gradeWithAi() {
+    if (!q || !answer.trim()) return;
+    setGrading(true);
+    setError(null);
+    const res = await gradeAnswerWithAI({ runId, questionId: q.id, answer });
+    setGrading(false);
+    if (!res.ok) {
+      setError(res.error);
+      return;
+    }
+    setAiGrade(res.data);
+    setRevealed(true);
+  }
+
   function next() {
     setAnswer("");
     setRevealed(false);
     setResult(null);
+    setAiGrade(null);
     setConfidence(3);
     setIndex((i) => i + 1);
   }
@@ -217,6 +238,24 @@ export function TestRunner({
         {/* Vzorová odpověď + sebehodnocení */}
         {isSelfGraded && revealed && (
           <div className="space-y-4">
+            {aiGrade && (
+              <div className="rounded-xl border border-primary/40 bg-primary/10 px-4 py-3 text-sm">
+                <p className="mb-1 flex items-center gap-2 font-medium">
+                  <Sparkles size={16} className="text-primary" /> Návrh AI: {Math.round(aiGrade.score * 100)} %
+                </p>
+                <p>{aiGrade.feedback}</p>
+                {aiGrade.missing.length > 0 && (
+                  <ul className="mt-2 list-disc space-y-0.5 pl-5 text-muted">
+                    {aiGrade.missing.map((m, i) => (
+                      <li key={i}>{m}</li>
+                    ))}
+                  </ul>
+                )}
+                <Button size="sm" className="mt-3" disabled={pending} onClick={() => submit(aiGrade.score)}>
+                  Přijmout {Math.round(aiGrade.score * 100)} %
+                </Button>
+              </div>
+            )}
             <div className="rounded-xl border border-border bg-panel-2 px-4 py-3">
               <p className="mb-1 text-xs font-semibold tracking-wide text-muted uppercase">Vzorová odpověď</p>
               <p className="text-sm whitespace-pre-line">
@@ -224,7 +263,7 @@ export function TestRunner({
               </p>
             </div>
             <div>
-              <p className="mb-2 text-sm text-muted">Kolik z toho jsi věděl/a?</p>
+              <p className="mb-2 text-sm text-muted">{aiGrade ? "Nebo ohodnoť sám/sama:" : "Kolik z toho jsi věděl/a?"}</p>
               <div className="grid grid-cols-5 gap-2">
                 {SELF_SCORES.map((s) => (
                   <button
@@ -255,7 +294,18 @@ export function TestRunner({
               {index + 1 < questions.length ? "Další otázka" : "Vyhodnotit"}
             </Button>
           ) : isSelfGraded ? (
-            !revealed && <Button onClick={() => setRevealed(true)}>Ukázat vzorovou odpověď</Button>
+            !revealed && (
+              <div className="flex flex-wrap justify-end gap-2">
+                {aiAvailable && (
+                  <Button variant="secondary" onClick={gradeWithAi} disabled={!answer.trim() || grading}>
+                    <Sparkles size={16} /> {grading ? "Hodnotím…" : "Ohodnotit pomocí AI"}
+                  </Button>
+                )}
+                <Button onClick={() => setRevealed(true)} disabled={grading}>
+                  Ukázat vzorovou odpověď
+                </Button>
+              </div>
+            )
           ) : (
             <Button onClick={() => submit()} disabled={!answer.trim() || pending}>
               Zkontrolovat

@@ -2,12 +2,13 @@
 
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { FileImage, FileText, NotebookPen, Trash2, Upload } from "lucide-react";
+import { CheckCircle2, FileImage, FileText, Loader2, NotebookPen, Sparkles, Trash2, TriangleAlert, Upload } from "lucide-react";
 import { ActionForm } from "@/components/action-form";
 import { Button, Card, CardTitle, EmptyState, Input, Textarea } from "@/components/ui";
 import type { Material } from "@/lib/database.types";
 import { createClient } from "@/lib/supabase/client";
 import { formatDate } from "@/lib/utils";
+import { transcribeMaterialAction } from "../../../../ai-actions";
 import { deleteMaterial, registerUploadedFile, saveNote } from "../../../../study-actions";
 
 type MaterialWithUrl = Material & { url: string | null };
@@ -21,7 +22,15 @@ function formatSize(bytes: number | null) {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-export function MaterialsPanel({ topicId, materials }: { topicId: string; materials: MaterialWithUrl[] }) {
+export function MaterialsPanel({
+  topicId,
+  materials,
+  aiAvailable,
+}: {
+  topicId: string;
+  materials: MaterialWithUrl[];
+  aiAvailable: boolean;
+}) {
   const [noteOpen, setNoteOpen] = useState(false);
 
   return (
@@ -48,7 +57,7 @@ export function MaterialsPanel({ topicId, materials }: { topicId: string; materi
       {materials.length ? (
         <ul className="space-y-3">
           {materials.map((m) => (
-            <MaterialItem key={m.id} material={m} />
+            <MaterialItem key={m.id} material={m} aiAvailable={aiAvailable} />
           ))}
         </ul>
       ) : (
@@ -62,8 +71,12 @@ export function MaterialsPanel({ topicId, materials }: { topicId: string; materi
   );
 }
 
-function MaterialItem({ material: m }: { material: MaterialWithUrl }) {
+function MaterialItem({ material: m, aiAvailable }: { material: MaterialWithUrl; aiAvailable: boolean }) {
   const [open, setOpen] = useState(false);
+  const router = useRouter();
+  const [transcribing, startTranscribe] = useTransition();
+  const [aiError, setAiError] = useState<string | null>(null);
+  const canTranscribe = !!m.storage_path && (m.kind === "image" || m.kind === "pdf");
   const Icon = m.kind === "image" ? FileImage : m.kind === "note" && !m.storage_path ? NotebookPen : FileText;
 
   return (
@@ -86,7 +99,27 @@ function MaterialItem({ material: m }: { material: MaterialWithUrl }) {
             {m.kind === "pdf" ? "PDF" : m.kind === "image" ? "Obrázek" : "Poznámka"}
             {m.size_bytes ? ` · ${formatSize(m.size_bytes)}` : ""} · {formatDate(m.created_at)}
           </p>
+          <MaterialStatus material={m} />
+          {aiError && <p className="mt-1 text-xs text-danger">{aiError}</p>}
         </div>
+        {canTranscribe && aiAvailable && (
+          <Button
+            variant={m.status === "error" ? "secondary" : "ghost"}
+            size="sm"
+            disabled={transcribing}
+            title="Přečte text z fotky nebo skenu pomocí AI, aby z něj mohl čerpat tutor"
+            onClick={() =>
+              startTranscribe(async () => {
+                setAiError(null);
+                const res = await transcribeMaterialAction(m.id);
+                if (!res.ok) setAiError(res.error);
+                router.refresh();
+              })
+            }
+          >
+            <Sparkles size={14} /> {transcribing ? "Přepisuji…" : "Přepsat pomocí AI"}
+          </Button>
+        )}
         <form
           action={deleteMaterial}
           onSubmit={(e) => {
@@ -104,6 +137,12 @@ function MaterialItem({ material: m }: { material: MaterialWithUrl }) {
         <img src={m.url} alt={m.title} className="max-h-80 w-full border-t border-border object-contain p-3" />
       )}
       {open && m.content && <div className="border-t border-border px-4 py-3 text-sm whitespace-pre-line">{m.content}</div>}
+      {m.storage_path && m.content && (
+        <details className="border-t border-border px-4 py-2 text-sm">
+          <summary className="cursor-pointer text-xs text-muted hover:text-text">Zobrazit přečtený text</summary>
+          <p className="mt-2 max-h-80 overflow-y-auto whitespace-pre-line text-muted">{m.content}</p>
+        </details>
+      )}
     </li>
   );
 }
@@ -173,4 +212,29 @@ function FileUpload({ topicId }: { topicId: string }) {
       {status && <span className="text-sm text-muted" role="status">{status}</span>}
     </div>
   );
+}
+
+function MaterialStatus({ material: m }: { material: Material }) {
+  if (m.status === "processing") {
+    return (
+      <p className="mt-1 flex items-center gap-1 text-xs text-muted">
+        <Loader2 size={12} className="animate-spin" /> Zpracovávám…
+      </p>
+    );
+  }
+  if (m.status === "error") {
+    return (
+      <p className="mt-1 flex items-center gap-1 text-xs text-warning">
+        <TriangleAlert size={12} /> {m.error ?? "Zpracování selhalo."}
+      </p>
+    );
+  }
+  if (m.processed_at) {
+    return (
+      <p className="mt-1 flex items-center gap-1 text-xs text-success">
+        <CheckCircle2 size={12} /> Připraveno pro AI tutora
+      </p>
+    );
+  }
+  return null;
 }

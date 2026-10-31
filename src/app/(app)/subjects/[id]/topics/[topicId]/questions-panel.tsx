@@ -8,6 +8,7 @@ import type { Question } from "@/lib/database.types";
 import { DIFFICULTY_LABELS } from "@/lib/subjects";
 import { cn } from "@/lib/utils";
 import { deleteQuestion, importQuestions, saveQuestion } from "../../../../study-actions";
+import { AiGenerate } from "./ai-generate";
 
 type QuestionWithRef = Question & { reference: string | null };
 
@@ -18,7 +19,15 @@ export const KIND_LABEL: Record<Question["kind"], string> = {
   numeric: "Číselná",
 };
 
-export function QuestionsPanel({ topicId, questions }: { topicId: string; questions: QuestionWithRef[] }) {
+export function QuestionsPanel({
+  topicId,
+  questions,
+  aiAvailable,
+}: {
+  topicId: string;
+  questions: QuestionWithRef[];
+  aiAvailable: boolean;
+}) {
   const [adding, setAdding] = useState<"single" | "bulk" | null>(questions.length ? null : "single");
   const [editing, setEditing] = useState<string | null>(null);
 
@@ -31,6 +40,7 @@ export function QuestionsPanel({ topicId, questions }: { topicId: string; questi
         <Button variant={adding === "bulk" ? "primary" : "ghost"} onClick={() => setAdding(adding === "bulk" ? null : "bulk")}>
           Vložit seznam
         </Button>
+        <AiGenerate topicId={topicId} kind="questions" available={aiAvailable} />
       </div>
 
       {adding === "single" && (

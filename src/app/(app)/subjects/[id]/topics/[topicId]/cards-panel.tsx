@@ -7,6 +7,7 @@ import { Badge, Button, Card, CardTitle, EmptyState, Textarea } from "@/componen
 import type { Flashcard } from "@/lib/database.types";
 import { formatDate } from "@/lib/utils";
 import { deleteFlashcard, flashcardsFromQuestions, importFlashcards, saveFlashcard } from "../../../../study-actions";
+import { AiGenerate } from "./ai-generate";
 
 const STATE_LABEL: Record<Flashcard["state"], string> = {
   new: "Nová",
@@ -15,7 +16,17 @@ const STATE_LABEL: Record<Flashcard["state"], string> = {
   relearning: "Znovu",
 };
 
-export function CardsPanel({ topicId, cards, hasQuestions }: { topicId: string; cards: Flashcard[]; hasQuestions: boolean }) {
+export function CardsPanel({
+  topicId,
+  cards,
+  hasQuestions,
+  aiAvailable,
+}: {
+  topicId: string;
+  cards: Flashcard[];
+  hasQuestions: boolean;
+  aiAvailable: boolean;
+}) {
   const [adding, setAdding] = useState<"single" | "bulk" | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
 
@@ -36,6 +47,7 @@ export function CardsPanel({ topicId, cards, hasQuestions }: { topicId: string; 
             </Button>
           </form>
         )}
+        <AiGenerate topicId={topicId} kind="cards" available={aiAvailable} />
       </div>
 
       {adding === "single" && (

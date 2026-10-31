@@ -7,6 +7,7 @@ import type { ActionState } from "./actions";
 import type { SubjectId } from "@/lib/database.types";
 import { requireUser } from "@/lib/dal";
 import { autoGrade } from "@/lib/grading";
+import { processMaterial } from "@/lib/materials";
 import { recomputeTopicProgress } from "@/lib/progress";
 import { schedule, type Rating } from "@/lib/srs";
 
@@ -277,10 +278,12 @@ export async function saveNote(_: ActionState, formData: FormData): Promise<Acti
   const { supabase } = await requireUser();
   const { data: topic } = await supabase.from("topics").select("subject_id").eq("id", parsed.data.topic_id).single();
   const row = { ...parsed.data, subject_id: topic?.subject_id ?? null, kind: "note" as const, status: "ready" as const };
-  const { error } = id
-    ? await supabase.from("materials").update(row).eq("id", id.data)
-    : await supabase.from("materials").insert(row);
+  const { data: saved, error } = id
+    ? await supabase.from("materials").update(row).eq("id", id.data).select("id").single()
+    : await supabase.from("materials").insert(row).select("id").single();
   if (error) return fail(error);
+  // Rozdělení na úseky pro AI vyhledávání; selhání nesmí zmařit uložení poznámky.
+  await processMaterial(supabase, saved.id).catch((e) => console.error("processMaterial", e));
 
   revalidatePath(await topicPath(parsed.data.topic_id));
   return { ok: true };
@@ -304,16 +307,22 @@ export async function registerUploadedFile(input: z.input<typeof fileSchema>): P
 
   const { data: topic } = await supabase.from("topics").select("subject_id").eq("id", parsed.data.topic_id).single();
   const kind = parsed.data.mime_type === "application/pdf" ? "pdf" : parsed.data.mime_type.startsWith("image/") ? "image" : "note";
-  const { error } = await supabase.from("materials").insert({
-    ...parsed.data,
-    subject_id: topic?.subject_id ?? null,
-    kind,
-    status: "uploaded",
-  });
+  const { data: saved, error } = await supabase
+    .from("materials")
+    .insert({
+      ...parsed.data,
+      subject_id: topic?.subject_id ?? null,
+      kind,
+      status: "processing",
+    })
+    .select("id")
+    .single();
   if (error) {
     await supabase.storage.from("materials").remove([parsed.data.storage_path]);
     return fail(error);
   }
+  // Text z PDF/textových souborů hned (bez AI); obrázky a skeny čekají na „Přepsat pomocí AI“.
+  await processMaterial(supabase, saved.id).catch((e) => console.error("processMaterial", e));
 
   revalidatePath(await topicPath(parsed.data.topic_id));
   return { ok: true };
@@ -411,6 +420,8 @@ const answerSchema = z.object({
   question_id: uuid,
   answer: z.string().max(20000).default(""),
   self_score: z.number().min(0).max(1).optional(),
+  /** Skóre navrhla AI (student ho mohl upravit) – jen pro evidenci. */
+  ai_graded: z.boolean().optional(),
   confidence: z.number().int().min(1).max(5).optional(),
   duration_sec: z.number().int().min(0).max(24 * 3600).optional(),
 });
@@ -444,7 +455,7 @@ export async function submitAnswer(input: z.input<typeof answerSchema>): Promise
     score,
     confidence: a.confidence ?? null,
     duration_sec: a.duration_sec ?? null,
-    graded_by: auto === null ? "self" : "auto",
+    graded_by: auto !== null ? "auto" : a.ai_graded ? "ai" : "self",
   });
   // 23505 = už zodpovězeno (dvojklik / obnovení stránky) – vrátíme výsledek bez nového zápisu.
   if (insErr && insErr.code !== "23505") return { score: 0, error: "Uložení odpovědi selhalo." };

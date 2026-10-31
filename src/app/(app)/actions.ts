@@ -243,6 +243,7 @@ const profileSchema = z.object({
   daily_minutes: z.coerce.number().int().min(0).max(720),
   theme: z.enum(["dark", "light", "system"]),
   ai_enabled: z.preprocess((v) => v === "on", z.boolean()),
+  ai_daily_limit_usd: z.coerce.number().min(0, "Limit nemůže být záporný.").max(100, "Limit max. 100 $."),
 });
 
 export async function saveProfile(_: ActionState, formData: FormData): Promise<ActionState> {
