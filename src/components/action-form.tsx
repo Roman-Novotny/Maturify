@@ -22,9 +22,12 @@ export function ActionForm({
 }) {
   const [state, formAction, pending] = useActionState(action, undefined);
   const ref = useRef<HTMLFormElement>(null);
+  const handled = useRef<ActionState>(undefined);
 
+  // Reagovat jen jednou na každý nový výsledek (onSuccess bývá inline funkce → nové deps každý render).
   useEffect(() => {
-    if (state?.ok) {
+    if (state?.ok && handled.current !== state) {
+      handled.current = state;
       if (resetOnSuccess) ref.current?.reset();
       onSuccess?.();
     }

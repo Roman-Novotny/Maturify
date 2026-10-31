@@ -1,5 +1,5 @@
 import type { ButtonHTMLAttributes, HTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
-import { cn } from "@/lib/utils";
+import { cn, pct } from "@/lib/utils";
 
 export function Card({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
   return <div className={cn("rounded-2xl border border-border bg-panel p-5 shadow-sm", className)} {...props} />;
@@ -38,18 +38,21 @@ export function Button({ className, variant, size, type = "button", ...props }: 
 }
 
 const fieldClass =
-  "w-full rounded-xl border border-border bg-panel-2 px-3 py-2 text-sm text-text placeholder:text-muted/70 outline-none transition-colors focus:border-primary";
+  "rounded-xl border border-border bg-panel-2 px-3 py-2 text-sm text-text placeholder:text-muted/70 outline-none transition-colors focus:border-primary";
+
+// Bez tailwind-merge: výchozí w-full jen když volající nenastavil vlastní šířku.
+const width = (className?: string) => (/(^|\s)(w-|max-w-)/.test(className ?? "") ? "" : "w-full");
 
 export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElement>) {
-  return <input className={cn(fieldClass, "h-10", className)} {...props} />;
+  return <input className={cn(fieldClass, width(className), "h-10", className)} {...props} />;
 }
 
 export function Textarea({ className, ...props }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return <textarea className={cn(fieldClass, "min-h-20", className)} {...props} />;
+  return <textarea className={cn(fieldClass, width(className), "min-h-20", className)} {...props} />;
 }
 
 export function Select({ className, ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
-  return <select className={cn(fieldClass, "h-10", className)} {...props} />;
+  return <select className={cn(fieldClass, width(className), "h-10", className)} {...props} />;
 }
 
 export function Label({ children, htmlFor }: { children: ReactNode; htmlFor?: string }) {
@@ -141,5 +144,19 @@ export function PageHeader({ title, subtitle, action }: { title: string; subtitl
       </div>
       {action}
     </header>
+  );
+}
+
+export function ScoreText({ score, className }: { score: number; className?: string }) {
+  return (
+    <span
+      className={cn(
+        "w-14 shrink-0 text-right font-medium whitespace-nowrap tabular-nums",
+        score >= 0.7 ? "text-success" : score >= 0.4 ? "text-warning" : "text-danger",
+        className,
+      )}
+    >
+      {pct(score)}
+    </span>
   );
 }

@@ -96,20 +96,3 @@ export function suggestPlan(
 
   return plan;
 }
-
-/**
- * Sebehodnocení 0–5 → nové zvládnutí a termín dalšího opakování.
- * Dočasná náhrada FSRS (Fáze 4): exponenciální průměr + interval rostoucí se zvládnutím.
- */
-export function applySelfRating(prev: Pick<UserProgress, "mastery" | "attempts_count"> | null, rating: number, now = new Date()) {
-  const r = Math.max(0, Math.min(5, rating)) / 5;
-  const mastery = prev && prev.attempts_count > 0 ? prev.mastery * 0.6 + r * 0.4 : r;
-  const intervalDays = Math.max(1, Math.round(1 + mastery * mastery * 20));
-  return {
-    mastery,
-    attempts_count: (prev?.attempts_count ?? 0) + 1,
-    last_studied_at: now.toISOString(),
-    next_review_at: new Date(now.getTime() + intervalDays * DAY).toISOString(),
-    stability: intervalDays,
-  };
-}

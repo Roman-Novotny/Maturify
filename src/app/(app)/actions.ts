@@ -2,9 +2,13 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { getExamDates, getProfile, getProgress, getTopics, requireUser } from "@/lib/dal";
-import { applySelfRating, suggestPlan } from "@/lib/planner";
+import type { Database } from "@/lib/database.types";
+import { countDueFlashcards, getExamDates, getProfile, getProgress, getTopics, requireUser } from "@/lib/dal";
+import { suggestPlan } from "@/lib/planner";
+import { recomputeTopicProgress } from "@/lib/progress";
 import { todayISO } from "@/lib/utils";
+
+type StudyTaskInsert = Database["public"]["Tables"]["study_tasks"]["Insert"];
 
 export type ActionState = { error?: string; ok?: boolean } | undefined;
 
@@ -99,18 +103,11 @@ export async function rateTopic(formData: FormData) {
   const rating = z.coerce.number().int().min(0).max(5).parse(formData.get("rating"));
   const { supabase, user } = await requireUser();
 
-  const { data: prev } = await supabase
-    .from("user_progress")
-    .select("mastery, attempts_count")
-    .eq("topic_id", id)
-    .maybeSingle();
-
-  const next = applySelfRating(prev, rating);
-  const [{ error: e1 }, { error: e2 }] = await Promise.all([
-    supabase.from("user_progress").upsert({ user_id: user.id, topic_id: id, ...next }),
-    supabase.from("attempts").insert({ topic_id: id, score: rating / 5, confidence: Math.max(1, rating), graded_by: "self" }),
-  ]);
-  if (e1 || e2) throw e1 ?? e2;
+  const { error } = await supabase
+    .from("attempts")
+    .insert({ topic_id: id, score: rating / 5, confidence: Math.max(1, rating), graded_by: "self" });
+  if (error) throw error;
+  await recomputeTopicProgress(supabase, user.id, id);
 
   revalidatePath("/subjects", "layout");
   revalidatePath("/dashboard");
@@ -168,7 +165,13 @@ export async function deleteTask(formData: FormData) {
  */
 export async function generateTodayPlan() {
   const { supabase } = await requireUser();
-  const [topics, progress, exams, profile] = await Promise.all([getTopics(), getProgress(), getExamDates(), getProfile()]);
+  const [topics, progress, exams, profile, dueCards] = await Promise.all([
+    getTopics(),
+    getProgress(),
+    getExamDates(),
+    getProfile(),
+    countDueFlashcards(),
+  ]);
   const date = todayISO();
 
   const { data: existing } = await supabase.from("study_tasks").select("*").eq("due_date", date);
@@ -177,7 +180,10 @@ export async function generateTodayPlan() {
   const manualMinutes = keptManual.reduce((a, t) => a + t.minutes, 0);
   const doneTopicIds = new Set((existing ?? []).filter((t) => t.done_at && t.topic_id).map((t) => t.topic_id));
 
-  const available = Math.max(0, (profile?.daily_minutes ?? 90) - doneMinutes - manualMinutes);
+  // Kartičky na řadě mají přednost – opakování je levné a zabraňuje zapomínání.
+  const cardsDoneToday = (existing ?? []).some((t) => t.done_at && t.kind === "review" && !t.topic_id);
+  const cardMinutes = dueCards > 0 && !cardsDoneToday ? Math.min(30, Math.max(5, Math.ceil(dueCards * 0.4))) : 0;
+  const available = Math.max(0, (profile?.daily_minutes ?? 90) - doneMinutes - manualMinutes - cardMinutes);
   const suggestions = suggestPlan(
     topics.filter((t) => !doneTopicIds.has(t.id)),
     progress,
@@ -200,18 +206,28 @@ export async function generateTodayPlan() {
     .neq("kind", "custom");
   if (delError) throw delError;
 
-  if (suggestions.length) {
-    const { error } = await supabase.from("study_tasks").insert(
-      suggestions.map((s) => ({
-        plan_id: plan.id,
-        topic_id: s.topic.id,
-        subject_id: s.topic.subject_id,
-        title: `${s.kind === "review" ? "Opakuj" : "Nauč se"}: ${s.topic.title}`,
-        kind: s.kind,
-        minutes: s.minutes,
-        due_date: date,
-      })),
-    );
+  const rows: StudyTaskInsert[] = suggestions.map((s) => ({
+    plan_id: plan.id,
+    topic_id: s.topic.id,
+    subject_id: s.topic.subject_id,
+    title: `${s.kind === "review" ? "Opakuj" : "Nauč se"}: ${s.topic.title}`,
+    kind: s.kind,
+    minutes: s.minutes,
+    due_date: date,
+  }));
+  if (cardMinutes) {
+    rows.unshift({
+      plan_id: plan.id,
+      topic_id: null,
+      subject_id: null,
+      title: `Opakuj kartičky (${dueCards})`,
+      kind: "review",
+      minutes: cardMinutes,
+      due_date: date,
+    });
+  }
+  if (rows.length) {
+    const { error } = await supabase.from("study_tasks").insert(rows);
     if (error) throw error;
   }
 

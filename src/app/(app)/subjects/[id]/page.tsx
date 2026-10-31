@@ -1,12 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ChevronLeft } from "lucide-react";
-import { Card, CardTitle, EmptyState, ProgressRing, SubjectIcon } from "@/components/ui";
+import { ChevronLeft, Play } from "lucide-react";
+import { Button, Card, CardTitle, EmptyState, ProgressRing, Select, SubjectIcon } from "@/components/ui";
 import type { SubjectId } from "@/lib/database.types";
-import { getProgress, getSubject, getTopics } from "@/lib/dal";
+import { getProgress, getSubject, getTopicCounts, getTopics } from "@/lib/dal";
 import { computeReadiness } from "@/lib/planner";
 import { SUBJECT_MODULES } from "@/lib/subjects";
+import { startTest } from "../../study-actions";
 import { AddTopicForms, TopicRow } from "./topic-ui";
 
 export async function generateMetadata({ params }: PageProps<"/subjects/[id]">): Promise<Metadata> {
@@ -15,12 +16,13 @@ export async function generateMetadata({ params }: PageProps<"/subjects/[id]">):
   return { title: subject?.name ?? "Předmět" };
 }
 
-export default async function SubjectPage({ params }: PageProps<"/subjects/[id]">) {
-  const { id } = await params;
+export default async function SubjectPage({ params, searchParams }: PageProps<"/subjects/[id]">) {
+  const [{ id }, { empty }] = await Promise.all([params, searchParams]);
   const subject = await getSubject(id);
   if (!subject) notFound();
 
-  const [topics, progress] = await Promise.all([getTopics(subject.id as SubjectId), getProgress()]);
+  const [topics, progress, counts] = await Promise.all([getTopics(subject.id as SubjectId), getProgress(), getTopicCounts()]);
+  const questionTotal = topics.reduce((a, t) => a + (counts.questions.get(t.id) ?? 0), 0);
   const progressByTopic = new Map(progress.map((p) => [p.topic_id, p]));
   const { perSubject } = computeReadiness([subject], topics, progress);
   const readiness = perSubject[0]?.readiness ?? 0;
@@ -55,6 +57,11 @@ export default async function SubjectPage({ params }: PageProps<"/subjects/[id]"
                   topic={topic}
                   progress={progressByTopic.get(topic.id) ?? null}
                   color={subject.color}
+                  counts={{
+                    questions: counts.questions.get(topic.id) ?? 0,
+                    cards: counts.cards.get(topic.id) ?? 0,
+                    materials: counts.materials.get(topic.id) ?? 0,
+                  }}
                 />
               ))}
             </ul>
@@ -68,18 +75,31 @@ export default async function SubjectPage({ params }: PageProps<"/subjects/[id]"
         <div className="space-y-6">
           <AddTopicForms subjectId={subject.id} hint={info.topicHint} />
           <Card>
-            <CardTitle>Moduly předmětu</CardTitle>
-            <ul className="space-y-2 text-sm">
-              {info.modules.map((m) => (
-                <li key={m} className="flex items-center justify-between gap-2">
-                  <span>{m}</span>
-                  <span className="text-xs text-muted">brzy</span>
-                </li>
-              ))}
-            </ul>
-            <p className="mt-4 text-xs text-muted">
-              Otázky, materiály, kartičky a testy přibydou ve Fázi 2. Teď si u každého tématu můžeš ohodnotit, jak ho umíš (0–5).
-            </p>
+            <CardTitle icon={<Play size={16} />}>Test z celého předmětu</CardTitle>
+            {empty && <p className="mb-3 text-sm text-warning">Zatím tu nejsou žádné otázky – přidej je u jednotlivých témat.</p>}
+            {questionTotal ? (
+              <form action={startTest} className="space-y-3">
+                <input type="hidden" name="subject_id" value={subject.id} />
+                <div className="grid grid-cols-2 gap-2">
+                  <Select name="count" defaultValue={Math.min(15, questionTotal)} aria-label="Počet otázek">
+                    {[5, 10, 15, 20, 30, 50].filter((n) => n <= questionTotal).map((n) => (
+                      <option key={n} value={n}>{n} otázek</option>
+                    ))}
+                    {questionTotal < 50 && ![5, 10, 15, 20, 30].includes(questionTotal) && (
+                      <option value={questionTotal}>Všech {questionTotal}</option>
+                    )}
+                  </Select>
+                  <Select name="mode" defaultValue="practice" aria-label="Režim">
+                    <option value="practice">Procvičování</option>
+                    <option value="timed">Na čas</option>
+                  </Select>
+                </div>
+                <Button type="submit" className="w-full">Spustit test</Button>
+                <p className="text-xs text-muted">Přednost mají otázky, které jsi ještě neprocvičil/a nebo ti nešly.</p>
+              </form>
+            ) : (
+              <p className="text-sm text-muted">Otázky přidáš po otevření tématu.</p>
+            )}
           </Card>
         </div>
       </div>

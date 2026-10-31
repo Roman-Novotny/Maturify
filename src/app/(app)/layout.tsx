@@ -1,13 +1,13 @@
 import Link from "next/link";
-import { LogOut } from "lucide-react";
+import { LogOut, Settings } from "lucide-react";
 import { BottomNav, SidebarNav } from "@/components/nav";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { Button } from "@/components/ui";
-import { getProfile } from "@/lib/dal";
+import { Button, buttonClass } from "@/components/ui";
+import { countDueFlashcards, getProfile } from "@/lib/dal";
 import { signOut } from "../(auth)/actions";
 
 export default async function AppLayout({ children }: LayoutProps<"/">) {
-  const profile = await getProfile();
+  const [profile, dueCount] = await Promise.all([getProfile(), countDueFlashcards()]);
   const name = profile?.display_name ?? "Student";
 
   return (
@@ -21,7 +21,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
             <p className="text-xs text-muted">Student workspace</p>
           </div>
         </Link>
-        <SidebarNav />
+        <SidebarNav dueCount={dueCount} />
         <div className="mt-auto flex items-center justify-between gap-2 border-t border-border pt-4">
           <div className="min-w-0 px-2">
             <p className="truncate text-sm font-medium">{name}</p>
@@ -45,6 +45,9 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
         </Link>
         <div className="flex">
           <ThemeToggle />
+          <Link href="/settings" className={buttonClass({ variant: "ghost", size: "sm" })} aria-label="Nastavení">
+            <Settings size={16} />
+          </Link>
           <form action={signOut}>
             <Button type="submit" variant="ghost" size="sm" aria-label="Odhlásit se">
               <LogOut size={16} />

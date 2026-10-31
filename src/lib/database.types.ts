@@ -1,11 +1,11 @@
 // Ručně udržované typy podle supabase/migrations. Při změně schématu aktualizuj i tady
 // (nebo přegeneruj: npx supabase gen types typescript --project-id gvnancmcyilrojdmpxje).
 
-type Table<Row, Required extends keyof Row = never> = {
+type Table<Row, Required extends keyof Row = never, Rel extends unknown[] = []> = {
   Row: Row;
   Insert: Partial<Row> & Pick<Row, Required>;
   Update: Partial<Row>;
-  Relationships: [];
+  Relationships: Rel;
 };
 
 export type SubjectId = "cj" | "en" | "it" | "ma";
@@ -49,6 +49,10 @@ export type Question = {
   kind: "open" | "choice" | "numeric" | "oral";
   difficulty: number;
   source: string | null;
+  options: string[] | null;
+  correct_option: number | null;
+  numeric_answer: number | null;
+  tolerance: number;
   created_at: string;
   updated_at: string;
 };
@@ -74,6 +78,8 @@ export type Material = {
   storage_path: string | null;
   content: string | null;
   status: "uploaded" | "processing" | "ready" | "error";
+  mime_type: string | null;
+  size_bytes: number | null;
   created_at: string;
   updated_at: string;
 };
@@ -97,6 +103,7 @@ export type Flashcard = {
   difficulty: number;
   reps: number;
   lapses: number;
+  state: "new" | "learning" | "review" | "relearning";
   due_at: string;
   last_review_at: string | null;
   created_at: string;
@@ -115,7 +122,21 @@ export type Attempt = {
   confidence: number | null;
   duration_sec: number | null;
   graded_by: "self" | "auto" | "ai";
+  test_run_id: string | null;
   created_at: string;
+};
+
+export type TestRun = {
+  id: string;
+  user_id: string;
+  subject_id: SubjectId | null;
+  topic_id: string | null;
+  mode: "practice" | "timed";
+  question_ids: string[];
+  time_limit_sec: number | null;
+  started_at: string;
+  finished_at: string | null;
+  score: number | null;
 };
 
 export type UserProgress = {
@@ -178,7 +199,19 @@ export type Database = {
       subjects: Table<Subject, "id" | "name" | "short" | "description" | "color">;
       topics: Table<Topic, "subject_id" | "title">;
       questions: Table<Question, "topic_id" | "prompt">;
-      answers: Table<Answer, "question_id" | "body">;
+      answers: Table<
+        Answer,
+        "question_id" | "body",
+        [
+          {
+            foreignKeyName: "answers_question_id_fkey";
+            columns: ["question_id"];
+            isOneToOne: false;
+            referencedRelation: "questions";
+            referencedColumns: ["id"];
+          },
+        ]
+      >;
       materials: Table<Material, "title">;
       material_chunks: Table<MaterialChunk, "material_id" | "idx" | "content">;
       flashcards: Table<Flashcard, "topic_id" | "front" | "back">;
@@ -188,6 +221,7 @@ export type Database = {
       study_plans: Table<StudyPlan, "plan_date">;
       study_tasks: Table<StudyTask, "title">;
       study_sessions: Table<StudySession>;
+      test_runs: Table<TestRun, "question_ids">;
     };
     Views: { [_ in never]: never };
     Functions: { [_ in never]: never };

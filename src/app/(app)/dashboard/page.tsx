@@ -1,8 +1,18 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { AlertTriangle, ArrowRight, CalendarClock, CheckCircle2, Circle, Lightbulb, ListChecks, Target, TrendingUp } from "lucide-react";
-import { Badge, buttonClass, Card, CardTitle, EmptyState, ProgressBar, ProgressRing, SubjectIcon } from "@/components/ui";
-import { getExamDates, getProfile, getProgress, getRecentAttempts, getSubjects, getTasksForDate, getTopics } from "@/lib/dal";
+import { AlertTriangle, ArrowRight, CalendarClock, CheckCircle2, Circle, Layers, Lightbulb, ListChecks, Target, TrendingUp } from "lucide-react";
+import { Badge, buttonClass, Card, CardTitle, EmptyState, ProgressBar, ProgressRing, ScoreText, SubjectIcon } from "@/components/ui";
+import {
+  countDueFlashcards,
+  getExamDates,
+  getProfile,
+  getProgress,
+  getRecentAttempts,
+  getSubjects,
+  getTasksForDate,
+  getTestRuns,
+  getTopics,
+} from "@/lib/dal";
 import { computeReadiness, rankTopics } from "@/lib/planner";
 import { daysUntil, formatDate, pct, plural, todayISO } from "@/lib/utils";
 import { generateTodayPlan, toggleTask } from "../actions";
@@ -10,7 +20,7 @@ import { generateTodayPlan, toggleTask } from "../actions";
 export const metadata: Metadata = { title: "Přehled" };
 
 export default async function DashboardPage() {
-  const [profile, subjects, topics, progress, exams, tasks, attempts] = await Promise.all([
+  const [profile, subjects, topics, progress, exams, tasks, attempts, runs, dueCards] = await Promise.all([
     getProfile(),
     getSubjects(),
     getTopics(),
@@ -18,6 +28,8 @@ export default async function DashboardPage() {
     getExamDates(),
     getTasksForDate(todayISO()),
     getRecentAttempts(6),
+    getTestRuns({ limit: 6 }),
+    countDueFlashcards(),
   ]);
 
   const subjectById = new Map(subjects.map((s) => [s.id, s]));
@@ -57,6 +69,20 @@ export default async function DashboardPage() {
           </div>
         </Card>
       </div>
+
+      {dueCards > 0 && (
+        <Card className="flex flex-wrap items-center gap-4">
+          <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-secondary/15 text-secondary">
+            <Layers size={20} />
+          </span>
+          <p className="flex-1">
+            <strong>{dueCards}</strong> {plural(dueCards, ["kartička čeká", "kartičky čekají", "kartiček čeká"])} na opakování.
+          </p>
+          <Link href="/review" className={buttonClass({ size: "sm" })}>
+            Opakovat
+          </Link>
+        </Card>
+      )}
 
       {/* Doporučení systému */}
       {top && (
@@ -195,28 +221,43 @@ export default async function DashboardPage() {
       {/* Poslední výsledky */}
       <Card>
         <CardTitle icon={<TrendingUp size={16} />}>Poslední výsledky</CardTitle>
-        {attempts.length ? (
+        {runs.length ? (
+          <ul className="divide-y divide-border">
+            {runs.map((r) => {
+              const topic = r.topic_id ? topicById.get(r.topic_id) : undefined;
+              const subject = r.subject_id ? subjectById.get(r.subject_id) : undefined;
+              return (
+                <li key={r.id}>
+                  <Link href={`/test/${r.id}`} className="flex items-center gap-3 py-2.5 text-sm hover:text-primary">
+                    {subject && <Badge color={subject.color}>{subject.short}</Badge>}
+                    <span className="flex-1 truncate">
+                      {topic?.title ?? (subject ? `Test – ${subject.name}` : "Test")}
+                      <span className="text-muted"> · {r.question_ids.length} ot.</span>
+                    </span>
+                    <span className="hidden text-xs text-muted sm:inline">{formatDate(r.finished_at ?? r.started_at)}</span>
+                    <ScoreText score={r.score ?? 0} />
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        ) : attempts.length ? (
           <ul className="divide-y divide-border">
             {attempts.map((a) => {
               const topic = a.topic_id ? topicById.get(a.topic_id) : undefined;
               const subject = topic ? subjectById.get(topic.subject_id) : undefined;
-              const score = a.score ?? 0;
               return (
                 <li key={a.id} className="flex items-center gap-3 py-2.5 text-sm">
                   {subject && <Badge color={subject.color}>{subject.short}</Badge>}
                   <span className="flex-1 truncate">{topic?.title ?? "Smazané téma"}</span>
                   <span className="hidden text-xs text-muted sm:inline">{formatDate(a.created_at)}</span>
-                  <span
-                    className={`w-12 text-right font-medium ${score >= 0.7 ? "text-success" : score >= 0.4 ? "text-warning" : "text-danger"}`}
-                  >
-                    {pct(score)}
-                  </span>
+                  <ScoreText score={a.score ?? 0} />
                 </li>
               );
             })}
           </ul>
         ) : (
-          <EmptyState title="Zatím žádné výsledky">Ohodnoť své znalosti u témat v Předmětech.</EmptyState>
+          <EmptyState title="Zatím žádné výsledky">Spusť test u tématu nebo si ohodnoť znalosti v Předmětech.</EmptyState>
         )}
       </Card>
     </div>

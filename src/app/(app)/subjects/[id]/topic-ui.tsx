@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Pencil, Trash2 } from "lucide-react";
 import { ActionForm } from "@/components/action-form";
 import { Button, Card, CardTitle, Input, Label, ProgressBar, Select, Textarea } from "@/components/ui";
@@ -78,11 +79,13 @@ export function TopicRow({
   topic,
   progress,
   color,
+  counts,
 }: {
   index: number;
   topic: Topic;
   progress: UserProgress | null;
   color: string;
+  counts: { questions: number; cards: number; materials: number };
 }) {
   const [editing, setEditing] = useState(false);
   const mastery = progress?.mastery ?? 0;
@@ -115,10 +118,15 @@ export function TopicRow({
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <p className="font-medium">{topic.title}</p>
+              <Link href={`/subjects/${topic.subject_id}/topics/${topic.id}`} className="font-medium hover:text-primary">
+                {topic.title}
+              </Link>
               {topic.description && <p className="mt-0.5 line-clamp-2 text-sm text-muted">{topic.description}</p>}
               <p className="mt-1 text-xs text-muted">
                 {DIFFICULTY_LABELS[topic.difficulty]}
+                {counts.questions > 0 && ` · ${counts.questions} otázek`}
+                {counts.cards > 0 && ` · ${counts.cards} kartiček`}
+                {counts.materials > 0 && ` · ${counts.materials} materiálů`}
                 {progress?.next_review_at && ` · opakovat ${formatDate(progress.next_review_at)}`}
               </p>
             </div>
