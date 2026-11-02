@@ -46,3 +46,4 @@ next-env.d.ts
 
 # Notion import – obsah sdílených poznámek nepatří do veřejného repa
 scripts/notion/*.json
+scripts/notion/img/

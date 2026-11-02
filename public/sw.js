@@ -1,7 +1,7 @@
 // Maturify service worker – offline podpora.
 // Statické soubory: cache-first. Stránky: síť, při výpadku uložená verze nebo /offline.
 // Nikdy necachuje API, server actions (POST) ani data jiných domén (Supabase, AI).
-const VERSION = "maturify-v2";
+const VERSION = "maturify-v3";
 const STATIC = `${VERSION}-static`;
 const PAGES = `${VERSION}-pages`;
 const PRECACHE = ["/offline", "/icon.svg", "/icons/icon-192.png", "/icons/icon-512.png", "/manifest.webmanifest"];

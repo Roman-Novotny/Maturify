@@ -7,6 +7,8 @@ import { writeFile } from "node:fs/promises";
 const BASE = "https://closed-cucumber-021.notion.site/api/v3";
 const ROOT = process.argv[2] ?? "10e4522ba7ee8047a8d5e679fe58af00";
 const toId = (s) => s.replace(/-/g, "").replace(/(.{8})(.{4})(.{4})(.{4})(.{12})/, "$1-$2-$3-$4-$5");
+/** id obrázkového bloku → zdroj (URL nebo attachment:…) */
+const images = {};
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function post(endpoint, body) {
@@ -64,7 +66,7 @@ function rich(title) {
       let t = text;
       if (t === "⁍") {
         const eq = ann?.find((a) => a[0] === "e");
-        return eq ? `$${eq[1]}$` : "";
+        return eq ? `\\(${eq[1].trim()}\\)` : ""; // inline vzorec jako \( … \) – „$“ se v IT poznámkách plete s proměnnými
       }
       for (const a of ann ?? []) {
         if (a[0] === "b") t = `**${t}**`;
@@ -113,8 +115,10 @@ function toMarkdown(pageId, blocks, childPages) {
           lines.push(`${ind}- **${text}**`);
           break;
         case "quote":
-        case "callout":
           lines.push(`${ind}> ${text}`);
+          break;
+        case "callout":
+          lines.push(`${ind}> ${b.format?.page_icon && !b.format.page_icon.startsWith("http") ? b.format.page_icon + " " : ""}${text}`);
           break;
         case "code":
           lines.push("```", b.properties?.title?.map((t) => t[0]).join("") ?? "", "```");
@@ -122,15 +126,20 @@ function toMarkdown(pageId, blocks, childPages) {
         case "equation":
           lines.push(`$$${b.properties?.title?.[0]?.[0] ?? ""}$$`);
           break;
-        case "image":
-          lines.push(`${ind}[obrázek${text ? `: ${text}` : ""}]`);
+        case "image": {
+          const src = b.properties?.source?.[0]?.[0] ?? b.format?.display_source;
+          if (src) {
+            images[id] = src;
+            lines.push("", `${ind}![${text.replace(/[[\]]/g, "")}](notion-img:${id})`, "");
+          }
           break;
+        }
         case "file":
         case "pdf":
           lines.push(`${ind}[soubor: ${text || b.properties?.source?.[0]?.[0] || ""}]`);
           break;
         case "bookmark":
-          lines.push(`${ind}${b.properties?.link?.[0]?.[0] ?? ""}`);
+          { const l = b.properties?.link?.[0]?.[0]; if (l) lines.push(`${ind}[${rich(b.properties?.title) || l}](${l})`); }
           break;
         case "divider":
           lines.push("", "---");
@@ -179,4 +188,5 @@ while (queue.length) {
 }
 
 await writeFile(new URL("./out.json", import.meta.url), JSON.stringify(out, null, 1));
+await writeFile(new URL("./images.json", import.meta.url), JSON.stringify(images, null, 1));
 console.log(`\nHotovo: ${out.length} stránek, ${out.reduce((a, p) => a + p.markdown.length, 0)} znaků`);

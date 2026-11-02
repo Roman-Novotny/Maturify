@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { RichMarkdown } from "@/components/rich-markdown";
 import { notFound } from "next/navigation";
 import { CheckCircle2, ChevronLeft, CircleDashed, XCircle } from "lucide-react";
 import { Badge, buttonClass, Card, ProgressRing, ScoreText } from "@/components/ui";
@@ -130,7 +131,7 @@ export default async function TestPage({ params }: PageProps<"/test/[runId]">) {
                             <summary className="cursor-pointer text-muted hover:text-text">
                               {q.kind === "open" || q.kind === "oral" ? "Vzorová odpověď" : "Vysvětlení"}
                             </summary>
-                            <p className="mt-2 whitespace-pre-line text-muted">{ref}</p>
+                            <RichMarkdown text={ref} compact className="mt-3 rounded-xl bg-panel-2/50 p-4" />
                           </details>
                         )}
                       </>

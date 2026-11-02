@@ -1,6 +1,7 @@
 // Z out.json (crawl.mjs) připraví items.json pro import do Maturify: témata + materiál (poznámka)
 // + úseky pro RAG + jedna ústní otázka se vzorovou odpovědí. Spuštění: node scripts/notion/build-items.ts
 
+import { readdirSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { chunkText } from "../../src/lib/chunking.ts";
 
@@ -9,14 +10,30 @@ type Page = { id: string; title: string; path: string[]; markdown: string; child
 const pages: Page[] = JSON.parse(await readFile(new URL("./out.json", import.meta.url), "utf8"));
 const byTitle = (prefix: string) => pages.find((p) => p.title.trim().startsWith(prefix))!;
 
-/** Úklid Markdownu z Notionu: osamocené odkazy „‣“ (zmínky) a vícenásobné prázdné řádky. */
+// Obrázky: images.mjs je stáhl do img/<blockId>.webp a ty jsou nahrané ve veřejném bucketu „notion“.
+const SUPABASE_URL = "https://gvnancmcyilrojdmpxje.supabase.co";
+const haveImg = new Set(readdirSync(new URL("./img/", import.meta.url)).map((f) => f.replace(/\.webp$/, "")));
+const IMG = /!\[([^\]]*)\]\(notion-img:([0-9a-f-]+)\)/;
+
+/** Úklid Markdownu z Notionu: zmínky „‣“, ikony Notionu v calloutech, obrázky → URL, prázdné řádky. */
 const clean = (md: string) =>
   md
     .split("\n")
     .filter((l) => l.trim() !== "‣")
+    .map((l) => l.replace(/^(\s*>\s*)\/icons\/\S+\s*/, "$1"))
+    .filter((l) => !/^\s*>\s*$/.test(l))
+    .flatMap((l) => {
+      const m = IMG.exec(l);
+      if (!m) return [l];
+      // Chybějící obrázek (mrtvý odkaz na cizí web) vynechat.
+      return haveImg.has(m[2]) ? [l.replace(IMG, `![$1](${SUPABASE_URL}/storage/v1/object/public/notion/$2.webp)`)] : [];
+    })
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+
+/** Text pro RAG úseky – bez obrázků. */
+const forSearch = (md: string) => md.replace(/^\s*!\[[^\]]*\]\([^)]*\)\s*$/gm, "").replace(/\n{3,}/g, "\n\n");
 
 const oneLine = (s: string) => s.replace(/\s+/g, " ").trim();
 
@@ -94,7 +111,7 @@ addSection("AVT - praktická maturita", "it", "AVT praktická –", "AVT – pra
 }
 
 // Výstup pro importní stránku v appce (/dev-import): témata s předpočítanými úseky.
-const payload = items.map((it) => ({ ...it, chunks: chunkText(it.markdown) }));
+const payload = items.map((it) => ({ ...it, chunks: chunkText(forSearch(it.markdown)) }));
 await writeFile(new URL("./items.json", import.meta.url), JSON.stringify(payload));
 console.log(
   `Témat: ${items.length} (IT ${items.filter((x) => x.subject === "it").length}, ČJ ${items.filter((x) => x.subject === "cj").length}),`,

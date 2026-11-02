@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { RichMarkdown } from "@/components/rich-markdown";
 import { CheckCircle2, Clock, Mic, MicOff, Sparkles, XCircle } from "lucide-react";
 import { Button, Card, Input, ProgressBar, Textarea } from "@/components/ui";
 import type { Question } from "@/lib/database.types";
@@ -259,7 +260,7 @@ export function TestRunner({
                 </>
               )}
             </p>
-            {result.reference && <p className="mt-2 whitespace-pre-line text-muted">{result.reference}</p>}
+            {result.reference && <RichMarkdown text={result.reference} compact className="mt-3 max-h-[70vh] overflow-y-auto rounded-xl bg-panel-2/50 p-4" />}
           </div>
         )}
 

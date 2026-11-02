@@ -6,6 +6,7 @@ import { CheckCircle2, FileImage, FileText, Loader2, NotebookPen, Sparkles, Tras
 import { ActionForm } from "@/components/action-form";
 import { Button, Card, CardTitle, EmptyState, Input, Textarea } from "@/components/ui";
 import type { Material } from "@/lib/database.types";
+import { RichMarkdown } from "@/components/rich-markdown";
 import { createClient } from "@/lib/supabase/client";
 import { formatDate } from "@/lib/utils";
 import { transcribeMaterialAction } from "../../../../ai-actions";
@@ -57,7 +58,7 @@ export function MaterialsPanel({
       {materials.length ? (
         <ul className="space-y-3">
           {materials.map((m) => (
-            <MaterialItem key={m.id} material={m} aiAvailable={aiAvailable} />
+            <MaterialItem key={m.id} material={m} aiAvailable={aiAvailable} defaultOpen={materials.length === 1 && m.kind === "note"} />
           ))}
         </ul>
       ) : (
@@ -71,8 +72,16 @@ export function MaterialsPanel({
   );
 }
 
-function MaterialItem({ material: m, aiAvailable }: { material: MaterialWithUrl; aiAvailable: boolean }) {
-  const [open, setOpen] = useState(false);
+function MaterialItem({
+  material: m,
+  aiAvailable,
+  defaultOpen = false,
+}: {
+  material: MaterialWithUrl;
+  aiAvailable: boolean;
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
   const router = useRouter();
   const [transcribing, startTranscribe] = useTransition();
   const [aiError, setAiError] = useState<string | null>(null);
@@ -136,7 +145,11 @@ function MaterialItem({ material: m, aiAvailable }: { material: MaterialWithUrl;
         // eslint-disable-next-line @next/next/no-img-element
         <img src={m.url} alt={m.title} className="max-h-80 w-full border-t border-border object-contain p-3" />
       )}
-      {open && m.content && <div className="border-t border-border px-4 py-3 text-sm whitespace-pre-line">{m.content}</div>}
+      {open && m.content && (
+        <div className="border-t border-border px-4 py-5 sm:px-6">
+          <RichMarkdown text={m.content} />
+        </div>
+      )}
       {m.storage_path && m.content && (
         <details className="border-t border-border px-4 py-2 text-sm">
           <summary className="cursor-pointer text-xs text-muted hover:text-text">Zobrazit přečtený text</summary>

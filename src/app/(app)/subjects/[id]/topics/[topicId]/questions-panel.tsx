@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { RichMarkdown } from "@/components/rich-markdown";
 import { ChevronDown, Pencil, Plus, Trash2 } from "lucide-react";
 import { ActionForm } from "@/components/action-form";
 import { Badge, Button, Card, CardTitle, EmptyState, Input, Label, Select, Textarea } from "@/components/ui";
@@ -156,7 +157,7 @@ function QuestionItem({ index, question: q, onEdit }: { index: number; question:
               {q.tolerance > 0 && <span className="text-muted"> (± {q.tolerance})</span>}
             </p>
           )}
-          {q.reference && <p className="whitespace-pre-line text-muted">{q.reference}</p>}
+          {q.reference && <RichMarkdown text={q.reference} compact className="rounded-xl bg-panel-2/50 p-4" />}
         </div>
       )}
     </li>
