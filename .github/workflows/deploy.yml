@@ -1,0 +1,64 @@
+name: CI & Deploy
+
+# Každý push na main: kontrola (typy, lint, testy) → nasazení na Vercel (produkce).
+# Nasazení potřebuje repo secret VERCEL_TOKEN (vercel.com → Account Settings → Tokens).
+# Bez něj se krok nasazení jen přeskočí a CI zůstane zelené.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  VERCEL_ORG_ID: team_qce9i7vGGpoUXPU9BPqZAch7
+  VERCEL_PROJECT_ID: prj_W0Yqbb5ihY2wIp4OwgRG5eaVIoZA
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx next typegen
+      - run: npx tsc --noEmit
+      - run: npx eslint src
+      - run: npm test
+
+  deploy:
+    needs: check
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+    steps:
+      - name: Token k dispozici?
+        id: token
+        run: |
+          if [ -n "$VERCEL_TOKEN" ]; then echo "ok=true" >> "$GITHUB_OUTPUT"
+          else echo "::warning::Chybí secret VERCEL_TOKEN – nasazení přeskočeno."; echo "ok=false" >> "$GITHUB_OUTPUT"; fi
+      - uses: actions/checkout@v4
+        if: steps.token.outputs.ok == 'true'
+      - uses: actions/setup-node@v4
+        if: steps.token.outputs.ok == 'true'
+        with:
+          node-version: 24
+          cache: npm
+      - name: Nasazení na Vercel (produkce)
+        if: steps.token.outputs.ok == 'true'
+        run: |
+          npx vercel@latest pull --yes --environment=production --token="$VERCEL_TOKEN"
+          npx vercel@latest build --prod --token="$VERCEL_TOKEN"
+          npx vercel@latest deploy --prebuilt --prod --token="$VERCEL_TOKEN"
+      - name: Ověření produkce
+        if: steps.token.outputs.ok == 'true'
+        run: |
+          sleep 10
+          curl -fsS --max-time 30 https://maturify.vercel.app/api/health
