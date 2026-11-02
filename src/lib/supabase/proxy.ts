@@ -1,7 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const PUBLIC_PATHS = ["/login", "/register", "/auth", "/offline"];
+const PUBLIC_PATHS = ["/login", "/register", "/auth", "/offline", "/api/health"];
 
 /**
  * Obnoví Supabase session a hlídá přihlášení. `requestHeaders` = hlavičky, které mají dostat
